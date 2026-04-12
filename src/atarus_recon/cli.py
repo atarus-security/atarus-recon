@@ -1,12 +1,12 @@
 import click
 from rich.console import Console
 from atarus_recon.runner import ReconRunner
-from atarus_recon.modules import crtsh, resolve, portscan
+from atarus_recon.modules import crtsh, resolve, portscan, webprobe, screenshot
 from atarus_recon.reports import html, json_export
 
 console = Console()
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 BANNER = f"""
    ╔═╗╔╦╗╔═╗╦═╗╦ ╦╔═╗  ╦═╗╔═╗╔═╗╔═╗╔╗╔
@@ -41,6 +41,8 @@ def main(target, output, out_format, rate_limit, verbose):
     runner.register("crt.sh subdomain enum", crtsh.run)
     runner.register("DNS resolution", resolve.run)
     runner.register("Port scan", portscan.run)
+    runner.register("Web probe", webprobe.run)
+    runner.register("Screenshot capture", screenshot.run)
 
     result = runner.run()
 

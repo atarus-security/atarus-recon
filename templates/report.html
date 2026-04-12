@@ -112,13 +112,70 @@
   }
   .host-body {
     padding: 0 20px 20px;
-    max-height: 2000px;
+    max-height: 4000px;
     overflow: hidden;
     transition: max-height 0.3s ease, padding 0.3s ease;
   }
   .host-body.collapsed {
     max-height: 0;
     padding: 0 20px;
+  }
+
+  .host-meta {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin: 12px 0;
+    font-size: 13px;
+  }
+  .host-meta .meta-item {
+    background: #0a0a0a;
+    padding: 10px 12px;
+    border-radius: 6px;
+  }
+  .host-meta .meta-label {
+    color: #666;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .host-meta .meta-value {
+    color: #e0e0e0;
+    margin-top: 2px;
+  }
+
+  .tech-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 12px 0;
+  }
+  .tech-tag {
+    background: #1a1a2e;
+    color: #7c8cf5;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'Courier New', monospace;
+  }
+
+  .screenshot-container {
+    margin: 16px 0;
+    border: 1px solid #1a1a1a;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .screenshot-container img {
+    width: 100%;
+    display: block;
+  }
+  .screenshot-label {
+    font-size: 11px;
+    color: #555;
+    padding: 8px 12px;
+    background: #0a0a0a;
+    text-transform: uppercase;
+    letter-spacing: 1px;
   }
 
   .status {
@@ -182,6 +239,7 @@
 
   @media (max-width: 640px) {
     .summary { grid-template-columns: repeat(2, 1fr); }
+    .host-meta { grid-template-columns: 1fr; }
   }
 
   @media print {
@@ -192,7 +250,8 @@
     .host-header { background: #f5f5f5; }
     .host-header h3 { color: #111; }
     .port-table th { background: #eee; color: #333; }
-    .host-body.collapsed { max-height: 2000px; padding: 0 20px 20px; }
+    .host-body.collapsed { max-height: 4000px; padding: 0 20px 20px; }
+    .tech-tag { background: #eef; color: #336; }
   }
 </style>
 </head>
@@ -228,7 +287,7 @@
       <tr><td>Target</td><td>{{ result.target }}</td></tr>
       <tr><td>Started</td><td>{{ result.started_at }}</td></tr>
       <tr><td>Completed</td><td>{{ result.finished_at }}</td></tr>
-      <tr><td>Tool</td><td>atarus-recon v0.1.0</td></tr>
+      <tr><td>Tool</td><td>atarus-recon v0.2.0</td></tr>
     </table>
   </div>
 
@@ -243,6 +302,39 @@
       <span class="ip">{{ host.ip or 'unresolved' }}</span>
     </div>
     <div class="host-body">
+
+      {% if host.status_code or host.title %}
+      <div class="host-meta">
+        <div class="meta-item">
+          <div class="meta-label">Status</div>
+          <div class="meta-value">{{ host.status_code or '-' }}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Title</div>
+          <div class="meta-value">{{ host.title or '-' }}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">IP Address</div>
+          <div class="meta-value">{{ host.ip or '-' }}</div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if host.technologies %}
+      <div class="tech-tags">
+        {% for tech in host.technologies %}
+        <span class="tech-tag">{{ tech.name }}{% if tech.version %} {{ tech.version }}{% endif %}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if host.screenshot_path %}
+      <div class="screenshot-container">
+        <div class="screenshot-label">Screenshot</div>
+        <img src="{{ host.screenshot_path }}" alt="Screenshot of {{ host.hostname }}" loading="lazy">
+      </div>
+      {% endif %}
+
       {% if host.ports %}
       <table class="port-table">
         <thead>
