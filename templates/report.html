@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>atarus-recon | {{ result.target }}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #060606;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    line-height: 1.6;
+    padding: 40px 20px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+
+  .header {
+    border-bottom: 2px solid #D4263E;
+    padding-bottom: 24px;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-size: 28px;
+    font-weight: 600;
+    color: #ffffff;
+    letter-spacing: 1px;
+  }
+  .header h1 span { color: #D4263E; }
+  .header .subtitle {
+    font-size: 14px;
+    color: #888;
+    margin-top: 4px;
+  }
+
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+  .card {
+    background: #111111;
+    border: 1px solid #1a1a1a;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+  }
+  .card .number {
+    font-size: 36px;
+    font-weight: 700;
+    color: #D4263E;
+  }
+  .card .label {
+    font-size: 13px;
+    color: #888;
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .scan-info {
+    background: #111111;
+    border: 1px solid #1a1a1a;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 40px;
+    font-size: 14px;
+  }
+  .scan-info table { width: 100%; }
+  .scan-info td {
+    padding: 6px 0;
+    border-bottom: 1px solid #1a1a1a;
+  }
+  .scan-info td:first-child {
+    color: #888;
+    width: 160px;
+  }
+
+  .host-section {
+    background: #111111;
+    border: 1px solid #1a1a1a;
+    border-radius: 8px;
+    margin-bottom: 24px;
+    overflow: hidden;
+  }
+  .host-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #1a1a1a;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+  }
+  .host-header:hover { background: #151515; }
+  .host-header h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #ffffff;
+  }
+  .host-header .ip {
+    font-size: 13px;
+    color: #D4263E;
+    font-family: 'Courier New', monospace;
+  }
+  .host-header .toggle {
+    color: #555;
+    font-size: 12px;
+    margin-left: 12px;
+    transition: transform 0.2s;
+  }
+  .host-body {
+    padding: 0 20px 20px;
+    max-height: 2000px;
+    overflow: hidden;
+    transition: max-height 0.3s ease, padding 0.3s ease;
+  }
+  .host-body.collapsed {
+    max-height: 0;
+    padding: 0 20px;
+  }
+
+  .status {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+  }
+  .status-alive { background: #22c55e; }
+  .status-dead { background: #555; }
+
+  .port-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    font-size: 14px;
+  }
+  .port-table th {
+    text-align: left;
+    padding: 10px 12px;
+    background: #0a0a0a;
+    color: #888;
+    font-weight: 500;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .port-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #1a1a1a;
+  }
+  .port-table tr:hover td { background: #151515; }
+  .port-number {
+    color: #D4263E;
+    font-family: 'Courier New', monospace;
+    font-weight: 600;
+  }
+  .port-service { color: #22c55e; }
+  .port-version { color: #888; }
+
+  .no-ports {
+    color: #555;
+    font-size: 14px;
+    padding: 12px 0;
+    font-style: italic;
+  }
+
+  .footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 1px solid #1a1a1a;
+    text-align: center;
+    font-size: 12px;
+    color: #555;
+  }
+  .footer a {
+    color: #D4263E;
+    text-decoration: none;
+  }
+
+  @media (max-width: 640px) {
+    .summary { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  @media print {
+    body { background: #fff; color: #111; }
+    .card { border: 1px solid #ccc; }
+    .card .number { color: #D4263E; }
+    .host-section { border: 1px solid #ccc; }
+    .host-header { background: #f5f5f5; }
+    .host-header h3 { color: #111; }
+    .port-table th { background: #eee; color: #333; }
+    .host-body.collapsed { max-height: 2000px; padding: 0 20px 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>ATARUS <span>RECON</span></h1>
+    <div class="subtitle">External Attack Surface Report</div>
+  </div>
+
+  <div class="summary">
+    <div class="card">
+      <div class="number">{{ result.total_subdomains }}</div>
+      <div class="label">Subdomains</div>
+    </div>
+    <div class="card">
+      <div class="number">{{ result.total_alive }}</div>
+      <div class="label">Alive Hosts</div>
+    </div>
+    <div class="card">
+      <div class="number">{{ result.total_ports }}</div>
+      <div class="label">Open Ports</div>
+    </div>
+    <div class="card">
+      <div class="number">{{ unique_ips }}</div>
+      <div class="label">Unique IPs</div>
+    </div>
+  </div>
+
+  <div class="scan-info">
+    <table>
+      <tr><td>Target</td><td>{{ result.target }}</td></tr>
+      <tr><td>Started</td><td>{{ result.started_at }}</td></tr>
+      <tr><td>Completed</td><td>{{ result.finished_at }}</td></tr>
+      <tr><td>Tool</td><td>atarus-recon v0.1.0</td></tr>
+    </table>
+  </div>
+
+  {% for host in result.hosts %}
+  <div class="host-section">
+    <div class="host-header" onclick="toggleHost(this)">
+      <h3>
+        <span class="status {{ 'status-alive' if host.ip else 'status-dead' }}"></span>
+        {{ host.hostname }}
+        <span class="toggle">&#9660;</span>
+      </h3>
+      <span class="ip">{{ host.ip or 'unresolved' }}</span>
+    </div>
+    <div class="host-body">
+      {% if host.ports %}
+      <table class="port-table">
+        <thead>
+          <tr>
+            <th>Port</th>
+            <th>Protocol</th>
+            <th>State</th>
+            <th>Service</th>
+            <th>Version</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for port in host.ports %}
+          <tr>
+            <td class="port-number">{{ port.number }}</td>
+            <td>{{ port.protocol }}</td>
+            <td>{{ port.state }}</td>
+            <td class="port-service">{{ port.service }}</td>
+            <td class="port-version">{{ port.version or '-' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="no-ports">No open ports detected in top 100</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="footer">
+    Generated by <a href="https://atarussecurity.com">Atarus Offensive Security</a>
+  </div>
+
+</div>
+<script>
+function toggleHost(el) {
+  var body = el.parentElement.querySelector('.host-body');
+  var arrow = el.querySelector('.toggle');
+  body.classList.toggle('collapsed');
+  arrow.style.transform = body.classList.contains('collapsed') ? 'rotate(-90deg)' : '';
+}
+</script>
+</body>
+</html>
