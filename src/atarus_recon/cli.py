@@ -2,12 +2,12 @@ import click
 from rich.console import Console
 from rich.table import Table
 from atarus_recon.runner import ReconRunner
-from atarus_recon.modules import crtsh, resolve, portscan, webprobe, screenshot, subfinder, whois_asn
+from atarus_recon.modules import crtsh, resolve, portscan, webprobe, screenshot, subfinder, whois_asn, waf_detect, cert_analysis
 from atarus_recon.reports import html, json_export
 
 console = Console()
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 BANNER = f"""
    ╔═╗╔╦╗╔═╗╦═╗╦ ╦╔═╗  ╦═╗╔═╗╔═╗╔═╗╔╗╔
@@ -23,6 +23,8 @@ MODULE_REGISTRY = [
     ("WHOIS and ASN lookup", "whois", whois_asn.run),
     ("Port scan", "portscan", portscan.run),
     ("Web probe", "webprobe", webprobe.run),
+    ("WAF detection", "waf", waf_detect.run),
+    ("Certificate analysis", "cert", cert_analysis.run),
     ("Screenshot capture", "screenshot", screenshot.run),
 ]
 
@@ -33,8 +35,8 @@ MODULE_REGISTRY = [
 @click.option("--format", "out_format", default="html", type=click.Choice(["html", "json", "both"]), help="Report format")
 @click.option("--rate-limit", default=10, help="Max requests per second")
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose output")
-@click.option("--skip", default="", help="Comma-separated modules to skip (e.g. --skip portscan,screenshot)")
-@click.option("--only", default="", help="Comma-separated modules to run exclusively (e.g. --only crtsh,resolve)")
+@click.option("--skip", default="", help="Comma-separated modules to skip")
+@click.option("--only", default="", help="Comma-separated modules to run exclusively")
 @click.option("--list-modules", is_flag=True, help="List available modules and exit")
 @click.version_option(version=VERSION, prog_name="atarus-recon")
 def main(target, output, out_format, rate_limit, verbose, skip, only, list_modules):
