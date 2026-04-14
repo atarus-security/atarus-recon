@@ -1,12 +1,13 @@
 import click
 from rich.console import Console
+from rich.table import Table
 from atarus_recon.runner import ReconRunner
-from atarus_recon.modules import crtsh, resolve, portscan, webprobe, screenshot
+from atarus_recon.modules import crtsh, resolve, portscan, webprobe, screenshot, subfinder, whois_asn
 from atarus_recon.reports import html, json_export
 
 console = Console()
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 BANNER = f"""
    ╔═╗╔╦╗╔═╗╦═╗╦ ╦╔═╗  ╦═╗╔═╗╔═╗╔═╗╔╗╔
@@ -15,34 +16,63 @@ BANNER = f"""
    Atarus Offensive Security | v{VERSION}
 """
 
+MODULE_REGISTRY = [
+    ("crt.sh subdomain enum", "crtsh", crtsh.run),
+    ("Subfinder enum", "subfinder", subfinder.run),
+    ("DNS resolution", "resolve", resolve.run),
+    ("WHOIS and ASN lookup", "whois", whois_asn.run),
+    ("Port scan", "portscan", portscan.run),
+    ("Web probe", "webprobe", webprobe.run),
+    ("Screenshot capture", "screenshot", screenshot.run),
+]
+
 
 @click.command()
-@click.option("-t", "--target", required=True, help="Target domain to scan (e.g. example.com)")
+@click.option("-t", "--target", default="", help="Target domain to scan")
 @click.option("-o", "--output", default="./output", help="Output directory for reports")
 @click.option("--format", "out_format", default="html", type=click.Choice(["html", "json", "both"]), help="Report format")
 @click.option("--rate-limit", default=10, help="Max requests per second")
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose output")
+@click.option("--skip", default="", help="Comma-separated modules to skip (e.g. --skip portscan,screenshot)")
+@click.option("--only", default="", help="Comma-separated modules to run exclusively (e.g. --only crtsh,resolve)")
+@click.option("--list-modules", is_flag=True, help="List available modules and exit")
 @click.version_option(version=VERSION, prog_name="atarus-recon")
-def main(target, output, out_format, rate_limit, verbose):
+def main(target, output, out_format, rate_limit, verbose, skip, only, list_modules):
     """atarus-recon: External attack surface reconnaissance by Atarus Offensive Security"""
+
+    if list_modules:
+        table = Table(title="Available modules")
+        table.add_column("Key", style="bold cyan")
+        table.add_column("Description")
+        for name, key, _ in MODULE_REGISTRY:
+            table.add_row(key, name)
+        console.print(table)
+        return
+
+    if not target:
+        console.print("[bold red]Error:[/] --target is required. Use -t example.com")
+        return
+
     console.print(BANNER, style="bold red")
     console.print(f"[bold white]Target:[/] {target}")
     console.print(f"[bold white]Output:[/] {output}")
     console.print(f"[bold white]Format:[/] {out_format}")
     console.print(f"[bold white]Rate limit:[/] {rate_limit} req/s")
 
+    skip_list = [s.strip() for s in skip.split(",") if s.strip()] if skip else []
+    only_list = [s.strip() for s in only.split(",") if s.strip()] if only else []
+
     runner = ReconRunner(
         target=target,
         output_dir=output,
         rate_limit=rate_limit,
         verbose=verbose,
+        skip=skip_list,
+        only=only_list,
     )
 
-    runner.register("crt.sh subdomain enum", crtsh.run)
-    runner.register("DNS resolution", resolve.run)
-    runner.register("Port scan", portscan.run)
-    runner.register("Web probe", webprobe.run)
-    runner.register("Screenshot capture", screenshot.run)
+    for name, key, func in MODULE_REGISTRY:
+        runner.register(name, key, func)
 
     result = runner.run()
 
