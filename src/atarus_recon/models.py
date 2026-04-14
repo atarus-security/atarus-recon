@@ -45,6 +45,7 @@ class ScanResult:
     total_subdomains: int = 0
     total_alive: int = 0
     total_ports: int = 0
+    whois_data: dict = field(default_factory=dict)
 
     def add_host(self, host: Host):
         self.hosts.append(host)
