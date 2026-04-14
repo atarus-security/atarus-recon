@@ -2,12 +2,12 @@ import click
 from rich.console import Console
 from rich.table import Table
 from atarus_recon.runner import ReconRunner
-from atarus_recon.modules import crtsh, resolve, portscan, webprobe, screenshot, subfinder, whois_asn, waf_detect, cert_analysis
+from atarus_recon.modules import crtsh, resolve, portscan, webprobe, screenshot, subfinder, whois_asn, waf_detect, cert_analysis, nuclei_scan, risk_score
 from atarus_recon.reports import html, json_export
 
 console = Console()
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 BANNER = f"""
    ╔═╗╔╦╗╔═╗╦═╗╦ ╦╔═╗  ╦═╗╔═╗╔═╗╔═╗╔╗╔
@@ -25,7 +25,9 @@ MODULE_REGISTRY = [
     ("Web probe", "webprobe", webprobe.run),
     ("WAF detection", "waf", waf_detect.run),
     ("Certificate analysis", "cert", cert_analysis.run),
+    ("Nuclei vulnerability scan", "nuclei", nuclei_scan.run),
     ("Screenshot capture", "screenshot", screenshot.run),
+    ("Risk scoring", "risk", risk_score.run),
 ]
 
 
