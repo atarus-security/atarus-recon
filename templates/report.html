@@ -18,74 +18,82 @@
   .header {
     border-bottom: 2px solid #D4263E;
     padding-bottom: 24px;
-    margin-bottom: 40px;
+    margin-bottom: 24px;
   }
-  .header h1 {
-    font-size: 28px;
-    font-weight: 600;
-    color: #ffffff;
-    letter-spacing: 1px;
-  }
+  .header h1 { font-size: 28px; font-weight: 600; color: #fff; letter-spacing: 1px; }
   .header h1 span { color: #D4263E; }
-  .header .subtitle {
-    font-size: 14px;
-    color: #888;
-    margin-top: 4px;
-  }
+  .header .subtitle { font-size: 14px; color: #888; margin-top: 4px; }
 
   .summary {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-    margin-bottom: 40px;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
   }
   .card {
-    background: #111111;
+    background: #111;
     border: 1px solid #1a1a1a;
     border-radius: 8px;
-    padding: 20px;
+    padding: 16px;
     text-align: center;
   }
-  .card .number {
-    font-size: 36px;
-    font-weight: 700;
-    color: #D4263E;
-  }
+  .card .number { font-size: 32px; font-weight: 700; color: #D4263E; }
   .card .label {
-    font-size: 13px;
+    font-size: 11px;
     color: #888;
     margin-top: 4px;
     text-transform: uppercase;
     letter-spacing: 1px;
   }
 
+  .tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid #1a1a1a;
+    margin-bottom: 24px;
+  }
+  .tab {
+    padding: 12px 24px;
+    font-size: 14px;
+    color: #888;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    user-select: none;
+    transition: color 0.2s;
+  }
+  .tab:hover { color: #e0e0e0; }
+  .tab.active { color: #D4263E; border-bottom-color: #D4263E; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
   .scan-info {
-    background: #111111;
+    background: #111;
     border: 1px solid #1a1a1a;
     border-radius: 8px;
     padding: 20px;
-    margin-bottom: 40px;
+    margin-bottom: 24px;
     font-size: 14px;
   }
   .scan-info table { width: 100%; }
-  .scan-info td {
-    padding: 6px 0;
-    border-bottom: 1px solid #1a1a1a;
-  }
-  .scan-info td:first-child {
-    color: #888;
-    width: 160px;
+  .scan-info td { padding: 6px 0; border-bottom: 1px solid #1a1a1a; }
+  .scan-info td:first-child { color: #888; width: 160px; }
+
+  .section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #fff;
+    margin: 24px 0 12px;
   }
 
   .host-section {
-    background: #111111;
+    background: #111;
     border: 1px solid #1a1a1a;
     border-radius: 8px;
-    margin-bottom: 24px;
+    margin-bottom: 16px;
     overflow: hidden;
   }
   .host-header {
-    padding: 16px 20px;
+    padding: 12px 20px;
     border-bottom: 1px solid #1a1a1a;
     display: flex;
     justify-content: space-between;
@@ -94,62 +102,40 @@
     user-select: none;
   }
   .host-header:hover { background: #151515; }
-  .host-header h3 {
-    font-size: 16px;
+  .host-header h3 { font-size: 15px; font-weight: 600; color: #fff; }
+  .host-header .ip { font-size: 13px; color: #D4263E; font-family: 'Courier New', monospace; }
+  .host-header .toggle { color: #555; font-size: 12px; margin-left: 12px; transition: transform 0.2s; }
+  .host-body { padding: 0 20px 16px; max-height: 4000px; overflow: hidden; transition: max-height 0.3s, padding 0.3s; }
+  .host-body.collapsed { max-height: 0; padding: 0 20px; }
+
+  .risk-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-size: 11px;
     font-weight: 600;
-    color: #ffffff;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-left: 10px;
   }
-  .host-header .ip {
-    font-size: 13px;
-    color: #D4263E;
-    font-family: 'Courier New', monospace;
-  }
-  .host-header .toggle {
-    color: #555;
-    font-size: 12px;
-    margin-left: 12px;
-    transition: transform 0.2s;
-  }
-  .host-body {
-    padding: 0 20px 20px;
-    max-height: 4000px;
-    overflow: hidden;
-    transition: max-height 0.3s ease, padding 0.3s ease;
-  }
-  .host-body.collapsed {
-    max-height: 0;
-    padding: 0 20px;
-  }
+  .risk-critical { background: #501313; color: #F09595; }
+  .risk-high { background: #4A1B0C; color: #F0997B; }
+  .risk-medium { background: #412402; color: #FAC775; }
+  .risk-low { background: #173404; color: #C0DD97; }
+  .risk-info { background: #1a1a1a; color: #888; }
 
   .host-meta {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
     margin: 12px 0;
     font-size: 13px;
   }
-  .host-meta .meta-item {
-    background: #0a0a0a;
-    padding: 10px 12px;
-    border-radius: 6px;
-  }
-  .host-meta .meta-label {
-    color: #666;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  }
-  .host-meta .meta-value {
-    color: #e0e0e0;
-    margin-top: 2px;
-  }
+  .meta-item { background: #0a0a0a; padding: 10px 12px; border-radius: 6px; }
+  .meta-label { color: #666; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+  .meta-value { color: #e0e0e0; margin-top: 2px; }
 
-  .tech-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin: 12px 0;
-  }
+  .tech-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
   .tech-tag {
     background: #1a1a2e;
     color: #7c8cf5;
@@ -159,70 +145,77 @@
     font-family: 'Courier New', monospace;
   }
 
-  .screenshot-container {
-    margin: 16px 0;
-    border: 1px solid #1a1a1a;
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  .screenshot-container img {
-    width: 100%;
-    display: block;
-  }
-  .screenshot-label {
-    font-size: 11px;
-    color: #555;
-    padding: 8px 12px;
-    background: #0a0a0a;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  }
+  .screenshot-container { margin: 12px 0; border: 1px solid #1a1a1a; border-radius: 8px; overflow: hidden; }
+  .screenshot-container img { width: 100%; display: block; }
+  .screenshot-label { font-size: 11px; color: #555; padding: 8px 12px; background: #0a0a0a; text-transform: uppercase; letter-spacing: 1px; }
 
-  .status {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    margin-right: 8px;
-  }
+  .status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; }
   .status-alive { background: #22c55e; }
   .status-dead { background: #555; }
 
-  .port-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 12px;
-    font-size: 14px;
-  }
-  .port-table th {
-    text-align: left;
-    padding: 10px 12px;
-    background: #0a0a0a;
-    color: #888;
-    font-weight: 500;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  }
-  .port-table td {
-    padding: 10px 12px;
-    border-bottom: 1px solid #1a1a1a;
-  }
+  .port-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+  .port-table th { text-align: left; padding: 8px 12px; background: #0a0a0a; color: #888; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+  .port-table td { padding: 8px 12px; border-bottom: 1px solid #1a1a1a; }
   .port-table tr:hover td { background: #151515; }
-  .port-number {
-    color: #D4263E;
-    font-family: 'Courier New', monospace;
-    font-weight: 600;
-  }
+  .port-number { color: #D4263E; font-family: 'Courier New', monospace; font-weight: 600; }
   .port-service { color: #22c55e; }
   .port-version { color: #888; }
 
-  .no-ports {
-    color: #555;
-    font-size: 14px;
-    padding: 12px 0;
-    font-style: italic;
+  .finding-card {
+    background: #111;
+    border: 1px solid #1a1a1a;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+    border-left: 3px solid #888;
   }
+  .finding-card.sev-critical { border-left-color: #E24B4A; }
+  .finding-card.sev-high { border-left-color: #D85A30; }
+  .finding-card.sev-medium { border-left-color: #EF9F27; }
+  .finding-card.sev-low { border-left-color: #97C459; }
+  .finding-title { font-size: 14px; font-weight: 600; color: #fff; }
+  .finding-url { font-size: 12px; color: #888; font-family: 'Courier New', monospace; margin-top: 4px; word-break: break-all; }
+  .finding-desc { font-size: 13px; color: #aaa; margin-top: 8px; }
+  .finding-sev {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-right: 8px;
+  }
+  .sev-critical { background: #501313; color: #F09595; }
+  .sev-high { background: #4A1B0C; color: #F0997B; }
+  .sev-medium { background: #412402; color: #FAC775; }
+  .sev-low { background: #173404; color: #C0DD97; }
+
+  .infra-card {
+    background: #111;
+    border: 1px solid #1a1a1a;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .infra-card h4 { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px; }
+  .infra-table { width: 100%; font-size: 13px; }
+  .infra-table td { padding: 6px 0; border-bottom: 1px solid #1a1a1a; }
+  .infra-table td:first-child { color: #888; width: 180px; }
+
+  .cert-card {
+    background: #0a0a0a;
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 10px;
+    font-size: 12px;
+  }
+  .cert-card .cert-row { display: flex; justify-content: space-between; padding: 3px 0; }
+  .cert-card .cert-label { color: #666; }
+  .cert-card .cert-value { color: #e0e0e0; }
+  .cert-card .cert-warn { color: #EF9F27; }
+  .cert-card .cert-bad { color: #E24B4A; }
+
+  .no-data { color: #555; font-size: 14px; padding: 20px 0; font-style: italic; }
 
   .footer {
     margin-top: 60px;
@@ -232,25 +225,22 @@
     font-size: 12px;
     color: #555;
   }
-  .footer a {
-    color: #D4263E;
-    text-decoration: none;
-  }
+  .footer a { color: #D4263E; text-decoration: none; }
 
   @media (max-width: 640px) {
     .summary { grid-template-columns: repeat(2, 1fr); }
-    .host-meta { grid-template-columns: 1fr; }
+    .host-meta { grid-template-columns: repeat(2, 1fr); }
   }
-
   @media print {
     body { background: #fff; color: #111; }
     .card { border: 1px solid #ccc; }
     .card .number { color: #D4263E; }
     .host-section { border: 1px solid #ccc; }
-    .host-header { background: #f5f5f5; }
     .host-header h3 { color: #111; }
     .port-table th { background: #eee; color: #333; }
-    .host-body.collapsed { max-height: 4000px; padding: 0 20px 20px; }
+    .host-body.collapsed { max-height: 4000px; padding: 0 20px 16px; }
+    .tab-content { display: block !important; }
+    .tabs { display: none; }
     .tech-tag { background: #eef; color: #336; }
   }
 </style>
@@ -270,11 +260,15 @@
     </div>
     <div class="card">
       <div class="number">{{ result.total_alive }}</div>
-      <div class="label">Alive Hosts</div>
+      <div class="label">Alive</div>
     </div>
     <div class="card">
       <div class="number">{{ result.total_ports }}</div>
-      <div class="label">Open Ports</div>
+      <div class="label">Ports</div>
+    </div>
+    <div class="card">
+      <div class="number">{{ result.findings | length }}</div>
+      <div class="label">Findings</div>
     </div>
     <div class="card">
       <div class="number">{{ unique_ips }}</div>
@@ -282,71 +276,131 @@
     </div>
   </div>
 
-  <div class="scan-info">
-    <table>
-      <tr><td>Target</td><td>{{ result.target }}</td></tr>
-      <tr><td>Started</td><td>{{ result.started_at }}</td></tr>
-      <tr><td>Completed</td><td>{{ result.finished_at }}</td></tr>
-      <tr><td>Tool</td><td>atarus-recon v0.2.0</td></tr>
-    </table>
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('overview')">Overview</div>
+    <div class="tab" onclick="switchTab('hosts')">Hosts</div>
+    <div class="tab" onclick="switchTab('vulns')">Vulnerabilities</div>
+    <div class="tab" onclick="switchTab('infra')">Infrastructure</div>
   </div>
 
-  {% for host in result.hosts %}
-  <div class="host-section">
-    <div class="host-header" onclick="toggleHost(this)">
-      <h3>
-        <span class="status {{ 'status-alive' if host.ip else 'status-dead' }}"></span>
-        {{ host.hostname }}
-        <span class="toggle">&#9660;</span>
-      </h3>
-      <span class="ip">{{ host.ip or 'unresolved' }}</span>
+  <div id="tab-overview" class="tab-content active">
+    <div class="scan-info">
+      <table>
+        <tr><td>Target</td><td>{{ result.target }}</td></tr>
+        <tr><td>Started</td><td>{{ result.started_at }}</td></tr>
+        <tr><td>Completed</td><td>{{ result.finished_at }}</td></tr>
+        <tr><td>Tool</td><td>atarus-recon v0.5.0</td></tr>
+      </table>
     </div>
-    <div class="host-body">
 
-      {% if host.status_code or host.title %}
-      <div class="host-meta">
-        <div class="meta-item">
-          <div class="meta-label">Status</div>
-          <div class="meta-value">{{ host.status_code or '-' }}</div>
-        </div>
-        <div class="meta-item">
-          <div class="meta-label">Title</div>
-          <div class="meta-value">{{ host.title or '-' }}</div>
-        </div>
-        <div class="meta-item">
-          <div class="meta-label">IP Address</div>
-          <div class="meta-value">{{ host.ip or '-' }}</div>
-        </div>
+    {% set high_risk = result.hosts | selectattr('risk_score') | list | sort(attribute='risk_score', reverse=True) %}
+    {% if high_risk %}
+    <div class="section-title">Risk overview</div>
+    {% for host in high_risk[:10] %}
+    {% if host.risk_score > 0 %}
+    <div class="host-section">
+      <div class="host-header" style="cursor:default">
+        <h3>
+          <span class="status status-alive"></span>
+          {{ host.hostname }}
+          <span class="risk-badge risk-{{ host.risk_level }}">{{ host.risk_level }} ({{ host.risk_score }})</span>
+        </h3>
+        <span class="ip">{{ host.ip }}</span>
       </div>
-      {% endif %}
+    </div>
+    {% endif %}
+    {% endfor %}
+    {% endif %}
 
-      {% if host.technologies %}
-      <div class="tech-tags">
-        {% for tech in host.technologies %}
-        <span class="tech-tag">{{ tech.name }}{% if tech.version %} {{ tech.version }}{% endif %}</span>
+    {% if result.findings %}
+    <div class="section-title">Top findings</div>
+    {% for finding in result.findings[:5] %}
+    <div class="finding-card sev-{{ finding.severity }}">
+      <span class="finding-sev sev-{{ finding.severity }}">{{ finding.severity }}</span>
+      <span class="finding-title">{{ finding.title }}</span>
+      <div class="finding-url">{{ finding.url }}</div>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+
+  <div id="tab-hosts" class="tab-content">
+    {% for host in result.hosts %}
+    <div class="host-section">
+      <div class="host-header" onclick="toggleHost(this)">
+        <h3>
+          <span class="status {{ 'status-alive' if host.ip else 'status-dead' }}"></span>
+          {{ host.hostname }}
+          {% if host.risk_level and host.risk_level != 'info' %}
+          <span class="risk-badge risk-{{ host.risk_level }}">{{ host.risk_level }}</span>
+          {% endif %}
+          <span class="toggle">&#9660;</span>
+        </h3>
+        <span class="ip">{{ host.ip or 'unresolved' }}</span>
+      </div>
+      <div class="host-body collapsed">
+
+        {% if host.status_code or host.title or host.waf %}
+        <div class="host-meta">
+          <div class="meta-item">
+            <div class="meta-label">Status</div>
+            <div class="meta-value">{{ host.status_code or '-' }}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-label">Title</div>
+            <div class="meta-value">{{ host.title or '-' }}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-label">WAF/CDN</div>
+            <div class="meta-value">{{ host.waf or host.cdn_name or 'None detected' }}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-label">Risk score</div>
+            <div class="meta-value">{{ host.risk_score }}/100</div>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if host.technologies %}
+        <div class="tech-tags">
+          {% for tech in host.technologies %}
+          <span class="tech-tag">{{ tech.name }}{% if tech.version %} {{ tech.version }}{% endif %}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if host.cert_data and host.cert_data.get('issuer') %}
+        <div class="cert-card">
+          <div class="cert-row"><span class="cert-label">Issuer</span><span class="cert-value">{{ host.cert_data.get('issuer', '-') }}</span></div>
+          <div class="cert-row"><span class="cert-label">Common name</span><span class="cert-value">{{ host.cert_data.get('common_name', '-') }}</span></div>
+          <div class="cert-row"><span class="cert-label">Expires</span><span class="{{ 'cert-bad' if host.cert_data.get('expired') else 'cert-warn' if host.cert_data.get('days_until_expiry', 999) < 30 else 'cert-value' }}">{{ host.cert_data.get('not_after', '-') }}{% if host.cert_data.get('expired') %} (EXPIRED){% elif host.cert_data.get('days_until_expiry', 999) < 30 %} ({{ host.cert_data.get('days_until_expiry') }} days){% endif %}</span></div>
+          <div class="cert-row"><span class="cert-label">SANs</span><span class="cert-value">{{ host.cert_data.get('san_count', 0) }} entries{% if host.cert_data.get('wildcard') %} (wildcard){% endif %}</span></div>
+          {% if host.cert_data.get('self_signed') %}<div class="cert-row"><span class="cert-bad">Self-signed certificate</span></div>{% endif %}
+        </div>
+        {% endif %}
+
+        {% if host.screenshot_path %}
+        <div class="screenshot-container">
+          <div class="screenshot-label">Screenshot</div>
+          <img src="{{ host.screenshot_path }}" alt="Screenshot of {{ host.hostname }}" loading="lazy">
+        </div>
+        {% endif %}
+
+        {% if host.findings %}
+        <div class="section-title" style="margin-top:12px">Findings</div>
+        {% for finding in host.findings %}
+        <div class="finding-card sev-{{ finding.severity }}" style="margin-bottom:8px">
+          <span class="finding-sev sev-{{ finding.severity }}">{{ finding.severity }}</span>
+          <span class="finding-title">{{ finding.title }}</span>
+          <div class="finding-url">{{ finding.url }}</div>
+        </div>
         {% endfor %}
-      </div>
-      {% endif %}
+        {% endif %}
 
-      {% if host.screenshot_path %}
-      <div class="screenshot-container">
-        <div class="screenshot-label">Screenshot</div>
-        <img src="{{ host.screenshot_path }}" alt="Screenshot of {{ host.hostname }}" loading="lazy">
-      </div>
-      {% endif %}
-
-      {% if host.ports %}
-      <table class="port-table">
-        <thead>
-          <tr>
-            <th>Port</th>
-            <th>Protocol</th>
-            <th>State</th>
-            <th>Service</th>
-            <th>Version</th>
-          </tr>
-        </thead>
-        <tbody>
+        {% if host.ports %}
+        <table class="port-table">
+          <thead><tr><th>Port</th><th>Protocol</th><th>State</th><th>Service</th><th>Version</th></tr></thead>
+          <tbody>
           {% for port in host.ports %}
           <tr>
             <td class="port-number">{{ port.number }}</td>
@@ -356,14 +410,130 @@
             <td class="port-version">{{ port.version or '-' }}</td>
           </tr>
           {% endfor %}
-        </tbody>
-      </table>
-      {% else %}
-      <div class="no-ports">No open ports detected in top 100</div>
-      {% endif %}
+          </tbody>
+        </table>
+        {% elif host.ip %}
+        <div class="no-data">No open ports detected in top 100</div>
+        {% endif %}
+      </div>
     </div>
+    {% endfor %}
   </div>
-  {% endfor %}
+
+  <div id="tab-vulns" class="tab-content">
+    {% if result.findings %}
+    {% set crits = result.findings | selectattr('severity', 'equalto', 'critical') | list %}
+    {% set highs = result.findings | selectattr('severity', 'equalto', 'high') | list %}
+    {% set meds = result.findings | selectattr('severity', 'equalto', 'medium') | list %}
+    {% set lows = result.findings | selectattr('severity', 'equalto', 'low') | list %}
+
+    {% if crits %}
+    <div class="section-title">Critical</div>
+    {% for f in crits %}
+    <div class="finding-card sev-critical">
+      <span class="finding-sev sev-critical">critical</span>
+      <span class="finding-title">{{ f.title }}</span>
+      <div class="finding-url">{{ f.url }}</div>
+      {% if f.description %}<div class="finding-desc">{{ f.description }}</div>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if highs %}
+    <div class="section-title">High</div>
+    {% for f in highs %}
+    <div class="finding-card sev-high">
+      <span class="finding-sev sev-high">high</span>
+      <span class="finding-title">{{ f.title }}</span>
+      <div class="finding-url">{{ f.url }}</div>
+      {% if f.description %}<div class="finding-desc">{{ f.description }}</div>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if meds %}
+    <div class="section-title">Medium</div>
+    {% for f in meds %}
+    <div class="finding-card sev-medium">
+      <span class="finding-sev sev-medium">medium</span>
+      <span class="finding-title">{{ f.title }}</span>
+      <div class="finding-url">{{ f.url }}</div>
+      {% if f.description %}<div class="finding-desc">{{ f.description }}</div>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if lows %}
+    <div class="section-title">Low</div>
+    {% for f in lows %}
+    <div class="finding-card sev-low">
+      <span class="finding-sev sev-low">low</span>
+      <span class="finding-title">{{ f.title }}</span>
+      <div class="finding-url">{{ f.url }}</div>
+      {% if f.description %}<div class="finding-desc">{{ f.description }}</div>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% else %}
+    <div class="no-data">No vulnerabilities detected. Consider running with nuclei enabled.</div>
+    {% endif %}
+  </div>
+
+  <div id="tab-infra" class="tab-content">
+    {% if result.whois_data %}
+    <div class="infra-card">
+      <h4>WHOIS information</h4>
+      <table class="infra-table">
+        {% if result.whois_data.get('registrar') %}<tr><td>Registrar</td><td>{{ result.whois_data.registrar }}</td></tr>{% endif %}
+        {% if result.whois_data.get('org') %}<tr><td>Organization</td><td>{{ result.whois_data.org }}</td></tr>{% endif %}
+        {% if result.whois_data.get('creation_date') %}<tr><td>Created</td><td>{{ result.whois_data.creation_date }}</td></tr>{% endif %}
+        {% if result.whois_data.get('expiration_date') %}<tr><td>Expires</td><td>{{ result.whois_data.expiration_date }}</td></tr>{% endif %}
+        {% if result.whois_data.get('name_servers') %}<tr><td>Name servers</td><td>{{ result.whois_data.name_servers | join(', ') }}</td></tr>{% endif %}
+      </table>
+    </div>
+    {% endif %}
+
+    <div class="infra-card">
+      <h4>IP address mapping</h4>
+      <table class="infra-table">
+        {% set seen_ips = [] %}
+        {% for host in result.hosts | sort(attribute='ip') %}
+        {% if host.ip and host.ip not in seen_ips %}
+        <tr>
+          <td>{{ host.ip }}</td>
+          <td>{{ result.hosts | selectattr('ip', 'equalto', host.ip) | map(attribute='hostname') | join(', ') }}</td>
+        </tr>
+        {% if seen_ips.append(host.ip) %}{% endif %}
+        {% endif %}
+        {% endfor %}
+      </table>
+    </div>
+
+    {% set waf_hosts = result.hosts | selectattr('waf') | list %}
+    {% if waf_hosts %}
+    <div class="infra-card">
+      <h4>WAF and CDN detection</h4>
+      <table class="infra-table">
+        {% for host in waf_hosts %}
+        <tr><td>{{ host.hostname }}</td><td>{{ host.waf }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% endif %}
+
+    {% set cdn_hosts = result.hosts | selectattr('cdn') | list %}
+    {% if cdn_hosts and not waf_hosts %}
+    <div class="infra-card">
+      <h4>CDN detection</h4>
+      <table class="infra-table">
+        {% for host in cdn_hosts %}
+        <tr><td>{{ host.hostname }}</td><td>{{ host.cdn_name }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% endif %}
+  </div>
 
   <div class="footer">
     Generated by <a href="https://atarussecurity.com">Atarus Offensive Security</a>
@@ -371,6 +541,12 @@
 
 </div>
 <script>
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
 function toggleHost(el) {
   var body = el.parentElement.querySelector('.host-body');
   var arrow = el.querySelector('.toggle');
