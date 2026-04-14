@@ -33,6 +33,8 @@ class Host:
     title: str = ""
     cdn: bool = False
     cdn_name: str = ""
+    waf: str = ""
+    cert_data: dict = field(default_factory=dict)
 
 
 @dataclass
