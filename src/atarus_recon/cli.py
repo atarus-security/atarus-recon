@@ -3,11 +3,11 @@ from rich.console import Console
 from rich.table import Table
 from atarus_recon.runner import ReconRunner
 from atarus_recon.modules import crtsh, resolve, portscan, webprobe, screenshot, subfinder, whois_asn, waf_detect, cert_analysis, nuclei_scan, risk_score
-from atarus_recon.reports import html, json_export
+from atarus_recon.reports import html, json_export, pdf
 
 console = Console()
 
-VERSION = "0.5.0"
+VERSION = "0.5.2"
 
 BANNER = f"""
    ╔═╗╔╦╗╔═╗╦═╗╦ ╦╔═╗  ╦═╗╔═╗╔═╗╔═╗╔╗╔
@@ -34,7 +34,7 @@ MODULE_REGISTRY = [
 @click.command()
 @click.option("-t", "--target", default="", help="Target domain to scan")
 @click.option("-o", "--output", default="./output", help="Output directory for reports")
-@click.option("--format", "out_format", default="html", type=click.Choice(["html", "json", "both"]), help="Report format")
+@click.option("--format", "out_format", default="html", type=click.Choice(["html", "json", "pdf", "all"]), help="Report format")
 @click.option("--rate-limit", default=10, help="Max requests per second")
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose output")
 @click.option("--skip", default="", help="Comma-separated modules to skip")
@@ -80,13 +80,17 @@ def main(target, output, out_format, rate_limit, verbose, skip, only, list_modul
 
     result = runner.run()
 
-    if out_format in ("html", "both"):
+    if out_format in ("html", "all"):
         report_path = html.generate(result, output)
         console.print(f"\n[bold green]HTML report:[/] {report_path}")
 
-    if out_format in ("json", "both"):
+    if out_format in ("json", "all"):
         json_path = json_export.generate(result, output)
         console.print(f"[bold green]JSON report:[/] {json_path}")
+
+    if out_format in ("pdf", "all"):
+        pdf_path = pdf.generate(result, output)
+        console.print(f"[bold green]PDF report:[/] {pdf_path}")
 
 
 if __name__ == "__main__":
