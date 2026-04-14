@@ -1,21 +1,31 @@
 # atarus-recon
 
-External attack surface reconnaissance tool by [Atarus Offensive Security](https://atarussecurity.com).
+External attack surface reconnaissance and vulnerability scanning tool by [Atarus Offensive Security](https://atarussecurity.com).
 
 One command. Full recon. Clean report.
 
 ## What it does
 
-- Subdomain enumeration via certificate transparency logs
+**Discovery**
+- Subdomain enumeration via certificate transparency logs and Subfinder (40+ passive sources)
 - DNS resolution with alive host detection
-- Port scanning with service version detection (via nmap)
-- Web service probing with HTTP status codes and page titles
-- Technology fingerprinting (frameworks, CDNs, web servers)
-- CDN detection and identification
+- WHOIS and ASN lookup
+
+**Scanning**
+- Port scanning with service version detection (nmap)
+- Web service probing with HTTP status codes, page titles, and tech fingerprinting
+- WAF and CDN detection
+- SSL/TLS certificate analysis (expiry, self-signed, wildcard detection)
 - Screenshot capture of all live web services
-- Professional HTML report with executive summary and inline screenshots
+
+**Vulnerability detection**
+- Nuclei vulnerability scanning with severity-based findings
+- Risk scoring engine that rates each host by exposure level
+
+**Output**
+- Professional HTML report with executive summary, risk indicators, and inline screenshots
 - JSON export for integration with other tools
-- Scope enforcement to prevent out-of-scope scanning
+- Module toggle system to run only what you need
 
 ## Install
 
@@ -33,53 +43,83 @@ pip install -e .
 - nmap
 - httpx (ProjectDiscovery)
 - gowitness v3
+- nuclei
+- subfinder
 - Linux (tested on Kali Linux)
 
 ### Install dependencies on Kali
 
 ```bash
-sudo apt install nmap -y
+sudo apt install nmap golang -y
 go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
+go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 go install github.com/sensepost/gowitness@latest
+echo 'export PATH="\$HOME/go/bin:\$PATH"' >> ~/.zshrc
+source ~/.zshrc
+nuclei -update-templates
 ```
 
 ## Usage
 
 ```bash
-# Basic scan with HTML report
+# Full scan with all 11 modules
 atarus-recon -t example.com
 
-# JSON output
-atarus-recon -t example.com --format json
+# Skip slow modules for fast recon
+atarus-recon -t example.com --skip portscan,screenshot
 
-# Both HTML and JSON
-atarus-recon -t example.com --format both
+# Run only subdomain enumeration
+atarus-recon -t example.com --only crtsh,subfinder,resolve
 
-# Custom output directory and verbose
-atarus-recon -t example.com -o ./reports -v
+# Both HTML and JSON output
+atarus-recon -t example.com --format both -v
 
-# Adjust rate limiting
-atarus-recon -t example.com --rate-limit 20
+# List all available modules
+atarus-recon --list-modules
 
 # Check version
 atarus-recon --version
 ```
 
+## Modules
+
+| Key | Module | Phase |
+|---|---|---|
+| crtsh | crt.sh certificate transparency | Discovery |
+| subfinder | Subfinder passive enumeration | Discovery |
+| resolve | DNS resolution | Discovery |
+| whois | WHOIS and ASN lookup | Discovery |
+| portscan | nmap port scanning | Scanning |
+| webprobe | httpx web probing and tech detection | Scanning |
+| waf | WAF and CDN detection | Scanning |
+| cert | SSL/TLS certificate analysis | Scanning |
+| nuclei | Nuclei vulnerability scanning | Vulnerability |
+| screenshot | gowitness screenshot capture | Evidence |
+| risk | Risk scoring engine | Analysis |
+
+All modules run by default. Use --skip or --only to customize.
+
 ## Pipeline
 
-atarus-recon runs five modules in sequence:
+atarus-recon runs modules in sequence:
 
-1. Subdomain enumeration (crt.sh certificate transparency)
-2. DNS resolution (filters alive hosts)
-3. Port scanning (nmap top 100 ports with service detection)
-4. Web probing (httpx for status codes, titles, tech stack)
-5. Screenshot capture (gowitness for visual evidence)
+1. Subdomain enumeration (crt.sh + subfinder)
+2. DNS resolution
+3. WHOIS/ASN lookup
+4. Port scanning
+5. Web probing and tech fingerprinting
+6. WAF/CDN detection
+7. Certificate analysis
+8. Vulnerability scanning (nuclei)
+9. Screenshot capture
+10. Risk scoring
 
 ## Output
 
-Reports are saved to ./output/ by default.
+Reports saved to ./output/ by default.
 
-- HTML: Visual report with summary dashboard, per-host breakdown, tech tags, and inline screenshots
+- HTML: Visual report with summary dashboard, risk scores, tech tags, findings, and screenshots
 - JSON: Machine-readable output for piping into other tools
 - Screenshots: Saved to ./output/screenshots/
 
@@ -94,15 +134,29 @@ def run(result, scope, rate_limit, verbose) -> ModuleResult:
 Register it in cli.py:
 
 ```python
-runner.register("My new module", my_module.run)
+runner.register("My module", "mykey", my_module.run)
 ```
 
 ## Roadmap
 
-- Subfinder integration for expanded subdomain coverage
-- Nuclei vulnerability scanning
-- Email enumeration
-- PDF report export
+- Email enumeration and password spray prep
+- Cloud resource discovery (S3, Azure blobs, dangling DNS)
+- JavaScript secrets scraping
+- Executive summary auto-generation
+- PDF export with Atarus branding
+- Scan comparison mode (diff two scans)
+- GitHub/GitLab dorking
+
+## Part of the atarus- tool suite
+
+atarus-recon is the first tool in a planned suite of open source offensive security tools:
+
+- **atarus-recon** - External attack surface recon (you are here)
+- **atarus-report** - AI-powered pentest report generator
+- **atarus-phish** - Phishing campaign analysis
+- **atarus-cloud** - Cloud misconfiguration scanner
+- **atarus-cred** - Credential exposure checker
+- **atarus-scope** - Engagement prep toolkit
 
 ## License
 
