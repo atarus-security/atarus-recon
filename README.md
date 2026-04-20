@@ -149,14 +149,11 @@ runner.register("My module", "mykey", my_module.run)
 
 ## Part of the atarus- tool suite
 
-atarus-recon is the first tool in a planned suite of open source offensive security tools:
+Open source offensive security tools built by practitioners.
 
 - **atarus-recon** - External attack surface recon (you are here)
-- **atarus-report** - AI-powered pentest report generator
-- **atarus-phish** - Phishing campaign analysis
-- **atarus-cloud** - Cloud misconfiguration scanner
-- **atarus-cred** - Credential exposure checker
-- **atarus-scope** - Engagement prep toolkit
+- **[atarus-cloud](https://github.com/atarus-security/atarus-cloud)** - Multi-cloud misconfiguration scanner
+- **[atarus-report-kit](https://github.com/atarus-security/atarus-report-kit)** - Single-file offline pentest reporting tool
 
 ## License
 
