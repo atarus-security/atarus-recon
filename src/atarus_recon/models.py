@@ -4,7 +4,6 @@ from datetime import datetime
 
 @dataclass
 class Port:
-    """A single open port on a host"""
     number: int
     protocol: str = "tcp"
     state: str = "open"
@@ -15,7 +14,6 @@ class Port:
 
 @dataclass
 class Technology:
-    """A detected technology on a web service"""
     name: str
     version: str = ""
     category: str = ""
@@ -23,7 +21,6 @@ class Technology:
 
 @dataclass
 class Finding:
-    """A vulnerability or issue discovered during scanning"""
     title: str
     severity: str = "info"
     description: str = ""
@@ -34,12 +31,11 @@ class Finding:
 
 @dataclass
 class Host:
-    """A single host discovered during recon"""
     hostname: str
     ip: str = ""
-    ports: list[Port] = field(default_factory=list)
-    technologies: list[Technology] = field(default_factory=list)
-    findings: list[Finding] = field(default_factory=list)
+    ports: list = field(default_factory=list)
+    technologies: list = field(default_factory=list)
+    findings: list = field(default_factory=list)
     screenshot_path: str = ""
     status_code: int = 0
     title: str = ""
@@ -52,19 +48,46 @@ class Host:
 
 
 @dataclass
+class BreachExposure:
+    """A single data breach affecting the target domain"""
+    name: str
+    title: str = ""
+    domain: str = ""
+    breach_date: str = ""
+    added_date: str = ""
+    modified_date: str = ""
+    pwn_count: int = 0
+    description: str = ""
+    data_classes: list = field(default_factory=list)
+    is_verified: bool = True
+    is_sensitive: bool = False
+
+
+@dataclass
+class CredentialExposure:
+    """Container for credential exposure data for the target domain"""
+    target_domain: str = ""
+    breaches: list = field(default_factory=list)
+    total_accounts_affected: int = 0
+    most_recent_breach: str = ""
+    credential_hygiene_score: int = 100
+    credential_hygiene_rating: str = "clean"
+
+
+@dataclass
 class ScanResult:
-    """Top-level container for an entire scan"""
     target: str
     started_at: str = field(default_factory=lambda: datetime.now().isoformat())
     finished_at: str = ""
-    hosts: list[Host] = field(default_factory=list)
-    findings: list[Finding] = field(default_factory=list)
+    hosts: list = field(default_factory=list)
+    findings: list = field(default_factory=list)
     total_subdomains: int = 0
     total_alive: int = 0
     total_ports: int = 0
     whois_data: dict = field(default_factory=dict)
+    credential_exposure: CredentialExposure = None
 
-    def add_host(self, host: Host):
+    def add_host(self, host):
         self.hosts.append(host)
 
     def finalize(self):

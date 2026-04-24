@@ -78,6 +78,30 @@
   .scan-info td { padding: 6px 0; border-bottom: 1px solid #1a1a1a; }
   .scan-info td:first-child { color: #888; width: 160px; }
 
+
+  .cred-section { margin: 20px 0; padding: 20px; background: #111; border: 1px solid #2a2a2a; border-radius: 8px; }
+  .cred-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #2a2a2a; }
+  .cred-rating { font-size: 14px; font-weight: 700; padding: 4px 12px; border-radius: 4px; text-transform: uppercase; letter-spacing: 1px; }
+  .cred-rating.clean { background: #052e16; color: #86efac; }
+  .cred-rating.fair { background: #422006; color: #fcd34d; }
+  .cred-rating.poor { background: #431407; color: #fdba74; }
+  .cred-rating.critical { background: #450a0a; color: #fca5a5; }
+  .cred-rating.severe { background: #450a0a; color: #fca5a5; border: 1px solid #dc2626; }
+  .cred-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  .cred-stat { background: #0a0a0a; padding: 14px 16px; border-radius: 6px; border-left: 3px solid #D4263E; }
+  .cred-stat-label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .cred-stat-value { font-size: 20px; font-weight: 700; color: #e0e0e0; font-family: 'Courier New', monospace; }
+  .breach-item { background: #0a0a0a; border: 1px solid #1a1a1a; border-left: 3px solid #888; border-radius: 4px; padding: 14px 16px; margin-bottom: 10px; }
+  .breach-item.recent { border-left-color: #ef4444; }
+  .breach-item.moderate { border-left-color: #f97316; }
+  .breach-item.old { border-left-color: #eab308; }
+  .breach-title { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+  .breach-meta { font-size: 11px; color: #888; margin-bottom: 8px; font-family: 'Courier New', monospace; }
+  .breach-classes { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .breach-class { background: #1e293b; color: #e2e8f0; padding: 2px 8px; border-radius: 3px; font-size: 10px; font-family: 'Courier New', monospace; }
+  .breach-desc { font-size: 12px; color: #aaa; line-height: 1.6; margin-top: 8px; }
+  .cred-empty { text-align: center; padding: 20px; color: #666; font-style: italic; font-size: 13px; }
+
   .section-title {
     font-size: 16px;
     font-weight: 600;
@@ -310,6 +334,60 @@
     </div>
     {% endif %}
     {% endfor %}
+    {% endif %}
+
+
+    {% if result.credential_exposure %}
+    <div class="section-title">Credential exposure</div>
+    <div class="cred-section">
+      <div class="cred-header">
+        <div>
+          <strong>Domain:</strong> {{ result.credential_exposure.target_domain }}
+        </div>
+        <div class="cred-rating {{ result.credential_exposure.credential_hygiene_rating }}">
+          {{ result.credential_exposure.credential_hygiene_rating }} ({{ result.credential_exposure.credential_hygiene_score }}/100)
+        </div>
+      </div>
+
+      <div class="cred-summary">
+        <div class="cred-stat">
+          <div class="cred-stat-label">Known breaches</div>
+          <div class="cred-stat-value">{{ result.credential_exposure.breaches | length }}</div>
+        </div>
+        <div class="cred-stat">
+          <div class="cred-stat-label">Accounts affected</div>
+          <div class="cred-stat-value">{{ "{:,}".format(result.credential_exposure.total_accounts_affected) }}</div>
+        </div>
+        <div class="cred-stat">
+          <div class="cred-stat-label">Most recent breach</div>
+          <div class="cred-stat-value">{{ result.credential_exposure.most_recent_breach or 'n/a' }}</div>
+        </div>
+      </div>
+
+      {% if result.credential_exposure.breaches %}
+        {% for b in result.credential_exposure.breaches %}
+        {% set year = b.breach_date.split('-')[0] | int if b.breach_date else 0 %}
+        {% set recency = 'recent' if year >= 2023 else 'moderate' if year >= 2018 else 'old' %}
+        <div class="breach-item {{ recency }}">
+          <div class="breach-title">{{ b.title or b.name }}</div>
+          <div class="breach-meta">
+            Breach date: {{ b.breach_date }} &middot; Accounts: {{ "{:,}".format(b.pwn_count) }}
+            {% if b.is_sensitive %} &middot; <span style="color:#ef4444">sensitive</span>{% endif %}
+          </div>
+          {% if b.data_classes %}
+          <div class="breach-classes">
+            {% for dc in b.data_classes %}<span class="breach-class">{{ dc }}</span>{% endfor %}
+          </div>
+          {% endif %}
+          {% if b.description %}
+          <div class="breach-desc">{{ b.description }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="cred-empty">No known breaches found affecting this domain.</div>
+      {% endif %}
+    </div>
     {% endif %}
 
     {% if result.findings %}
