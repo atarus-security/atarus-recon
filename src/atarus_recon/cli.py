@@ -2,12 +2,12 @@ import click
 from rich.console import Console
 from rich.table import Table
 from atarus_recon.runner import ReconRunner
-from atarus_recon.modules import crtsh, resolve, portscan, webprobe, screenshot, subfinder, whois_asn, waf_detect, cert_analysis, nuclei_scan, risk_score
-from atarus_recon.reports import html, json_export, pdf
+from atarus_recon.modules import crtsh, resolve, portscan, webprobe, screenshot, subfinder, whois_asn, waf_detect, cert_analysis, nuclei_scan, risk_score, credcheck
+from atarus_recon.reports import html, json_export, pdf, credcheck_csv
 
 console = Console()
 
-VERSION = "0.5.2"
+VERSION = "0.4.0"
 
 BANNER = f"""
    ╔═╗╔╦╗╔═╗╦═╗╦ ╦╔═╗  ╦═╗╔═╗╔═╗╔═╗╔╗╔
@@ -27,6 +27,7 @@ MODULE_REGISTRY = [
     ("Certificate analysis", "cert", cert_analysis.run),
     ("Nuclei vulnerability scan", "nuclei", nuclei_scan.run),
     ("Screenshot capture", "screenshot", screenshot.run),
+    ("Credential exposure check", "credcheck", credcheck.run),
     ("Risk scoring", "risk", risk_score.run),
 ]
 
@@ -79,6 +80,12 @@ def main(target, output, out_format, rate_limit, verbose, skip, only, list_modul
         runner.register(name, key, func)
 
     result = runner.run()
+
+    if result.credential_exposure and result.credential_exposure.breaches:
+        csv_paths = credcheck_csv.generate(result, output)
+        for p in csv_paths:
+            console.print(f"[bold green]CSV report:[/] {p}")
+
 
     if out_format in ("html", "all"):
         report_path = html.generate(result, output)
