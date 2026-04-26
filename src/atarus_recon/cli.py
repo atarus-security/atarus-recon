@@ -7,7 +7,7 @@ from atarus_recon.reports import html, json_export, pdf, credcheck_csv
 
 console = Console()
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 
 BANNER = f"""
    ╔═╗╔╦╗╔═╗╦═╗╦ ╦╔═╗  ╦═╗╔═╗╔═╗╔═╗╔╗╔
