@@ -1,3 +1,4 @@
+import traceback
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from atarus_recon.models import ScanResult
@@ -25,7 +26,7 @@ class ReconRunner:
         self.skip = [s.strip().lower() for s in (skip or [])]
         self.only = [s.strip().lower() for s in (only or [])]
         self.scope = ScopeValidator(target)
-        self.result = ScanResult(target=target)
+        self.result = ScanResult(target=self.scope.target)
         self.modules = []
 
     def register(self, name: str, key: str, func):
@@ -44,12 +45,14 @@ class ReconRunner:
 
         if not self.scope.validate_target():
             console.print(f"[bold red]Invalid target:[/] {self.target}")
+            console.print(f"[dim]Cleaned to:[/] {self.scope.target}")
+            console.print(f"[dim]Hint:[/] target must be a domain like example.com or sub.example.com")
             return self.result
 
         active = [m for m in self.modules if self._should_run(m["key"])]
         skipped = len(self.modules) - len(active)
 
-        console.print(f"[bold green]Scope locked:[/] *.{self.target}")
+        console.print(f"[bold green]Scope locked:[/] *.{self.scope.target}")
         console.print(f"[bold white]Modules:[/] {len(active)} active, {skipped} skipped")
         console.print()
 
@@ -80,9 +83,10 @@ class ReconRunner:
                         console.print(f"  [yellow]warn[/] {module_result.message}")
 
                 except Exception as e:
-                    console.print(f"  [red]fail[/] {name}")
+                    err_type = type(e).__name__
+                    console.print(f"  [red]fail[/] {name}: {err_type}: {str(e)[:120]}")
                     if self.verbose:
-                        console.print(f"  [red]Error: {e}[/]")
+                        console.print(f"[red]{traceback.format_exc()}[/]")
 
             console.print()
 
