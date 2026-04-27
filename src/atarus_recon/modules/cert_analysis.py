@@ -1,6 +1,14 @@
+"""TLS certificate analysis using the cryptography library.
+
+Replaces the old implementation that relied on ssl._ssl._test_decode_cert,
+which is a private API removed in Python 3.12+. The cryptography library
+parses certificates directly and supports self-signed certs without
+requiring a trusted CA chain.
+"""
 import ssl
 import socket
-from datetime import datetime
+from datetime import datetime, timezone
+
 from atarus_recon.models import ScanResult
 from atarus_recon.scope import ScopeValidator
 from atarus_recon.runner import ModuleResult
@@ -38,67 +46,139 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
 
 
 def _get_cert_info(hostname: str, verbose: bool) -> dict:
+    """Fetch the cert chain and parse the leaf with the cryptography library."""
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.backends import default_backend
+    except ImportError:
+        return _get_cert_info_fallback(hostname)
+
     try:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
 
-        with socket.create_connection((hostname, 443), timeout=5) as sock:
+        with socket.create_connection((hostname, 443), timeout=8) as sock:
             with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
-                cert = ssock.getpeercert(binary_form=True)
-                parsed = ssl._ssl._test_decode_cert(cert) if hasattr(ssl._ssl, '_test_decode_cert') else None
+                der = ssock.getpeercert(binary_form=True)
 
-        if parsed is None:
-            ctx2 = ssl.create_default_context()
-            try:
-                with socket.create_connection((hostname, 443), timeout=5) as sock:
-                    with ctx2.wrap_socket(sock, server_hostname=hostname) as ssock:
-                        parsed = ssock.getpeercert()
-            except ssl.SSLCertVerificationError:
-                return {"hostname": hostname, "error": "verification failed", "self_signed": True}
-
-        if not parsed:
+        if not der:
             return {}
 
-        subject = dict(x[0] for x in parsed.get("subject", []))
-        issuer = dict(x[0] for x in parsed.get("issuer", []))
+        cert = x509.load_der_x509_certificate(der, default_backend())
 
-        not_before = parsed.get("notBefore", "")
-        not_after = parsed.get("notAfter", "")
+        common_name = ""
+        org_name = ""
+        for attr in cert.subject:
+            if attr.oid._name == "commonName":
+                common_name = attr.value
+            elif attr.oid._name == "organizationName":
+                org_name = attr.value
 
-        expired = False
-        days_until_expiry = 999
-        if not_after:
-            try:
-                expiry = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
-                days_until_expiry = (expiry - datetime.utcnow()).days
-                expired = days_until_expiry < 0
-            except ValueError:
-                pass
+        issuer_cn = ""
+        issuer_org = ""
+        for attr in cert.issuer:
+            if attr.oid._name == "commonName":
+                issuer_cn = attr.value
+            elif attr.oid._name == "organizationName":
+                issuer_org = attr.value
+
+        try:
+            not_before = cert.not_valid_before_utc
+            not_after = cert.not_valid_after_utc
+        except AttributeError:
+            not_before = cert.not_valid_before.replace(tzinfo=timezone.utc)
+            not_after = cert.not_valid_after.replace(tzinfo=timezone.utc)
+
+        now = datetime.now(timezone.utc)
+        days_until_expiry = (not_after - now).days
+        expired = days_until_expiry < 0
 
         sans = []
-        for san_type, san_value in parsed.get("subjectAltName", []):
-            if san_type == "DNS":
-                sans.append(san_value)
+        try:
+            san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+            raw_sans = san_ext.value.get_values_for_type(x509.DNSName)
+            for s in raw_sans:
+                if isinstance(s, str):
+                    sans.append(s)
+                elif hasattr(s, "value"):
+                    sans.append(s.value)
+        except x509.ExtensionNotFound:
+            pass
+        except Exception:
+            pass
 
-        self_signed = subject.get("organizationName", "") == issuer.get("organizationName", "") and \
-                      subject.get("commonName", "") == issuer.get("commonName", "")
+        self_signed = (
+            cert.subject == cert.issuer
+            or (issuer_cn and issuer_cn == common_name and issuer_org == org_name)
+        )
+
+        sig_algo = ""
+        try:
+            sig_algo = cert.signature_hash_algorithm.name if cert.signature_hash_algorithm else ""
+        except Exception:
+            pass
+
+        weak_signature = sig_algo.lower() in ("md5", "sha1")
 
         return {
             "hostname": hostname,
-            "common_name": subject.get("commonName", ""),
-            "issuer": issuer.get("organizationName", issuer.get("commonName", "")),
-            "not_before": not_before,
-            "not_after": not_after,
+            "common_name": common_name,
+            "issuer": issuer_org or issuer_cn,
+            "not_before": not_before.isoformat(),
+            "not_after": not_after.isoformat(),
             "days_until_expiry": days_until_expiry,
             "expired": expired,
             "self_signed": self_signed,
             "san_count": len(sans),
             "sans": sans[:20],
             "wildcard": any(s.startswith("*.") for s in sans),
+            "signature_algorithm": sig_algo,
+            "weak_signature": weak_signature,
         }
 
-    except (socket.timeout, socket.gaierror, ConnectionRefusedError, OSError):
+    except (socket.timeout, socket.gaierror, ConnectionRefusedError, OSError, ssl.SSLError):
         return {}
     except Exception:
         return {}
+
+
+def _get_cert_info_fallback(hostname: str) -> dict:
+    """Best-effort fallback when cryptography is unavailable."""
+    try:
+        ctx = ssl.create_default_context()
+        with socket.create_connection((hostname, 443), timeout=8) as sock:
+            with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
+                parsed = ssock.getpeercert()
+    except Exception:
+        return {}
+
+    if not parsed:
+        return {}
+
+    subject = dict(x[0] for x in parsed.get("subject", []))
+    issuer = dict(x[0] for x in parsed.get("issuer", []))
+    not_after_str = parsed.get("notAfter", "")
+
+    days_until_expiry = 999
+    expired = False
+    if not_after_str:
+        try:
+            expiry = datetime.strptime(not_after_str, "%b %d %H:%M:%S %Y %Z")
+            days_until_expiry = (expiry - datetime.utcnow()).days
+            expired = days_until_expiry < 0
+        except ValueError:
+            pass
+
+    return {
+        "hostname": hostname,
+        "common_name": subject.get("commonName", ""),
+        "issuer": issuer.get("organizationName", issuer.get("commonName", "")),
+        "not_after": not_after_str,
+        "days_until_expiry": days_until_expiry,
+        "expired": expired,
+        "self_signed": False,
+        "san_count": 0,
+        "sans": [],
+        "wildcard": False,
+    }

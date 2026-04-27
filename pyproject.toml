@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "atarus-recon"
-version = "0.4.1"
+version = "0.5.0"
 description = "External attack surface reconnaissance tool by Atarus Offensive Security"
 readme = "README.md"
 license = {text = "MIT"}
@@ -30,6 +30,7 @@ dependencies = [
     "weasyprint>=60.0",
     "python-whois>=0.9",
     "requests>=2.31",
+    "cryptography>=41.0",
 ]
 
 [project.scripts]
