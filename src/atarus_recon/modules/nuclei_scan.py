@@ -2,6 +2,7 @@ import subprocess
 import json
 import os
 import tempfile
+from urllib.parse import urlparse
 from atarus_recon.models import ScanResult, Finding
 from atarus_recon.scope import ScopeValidator
 from atarus_recon.runner import ModuleResult
@@ -62,7 +63,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
             if os.path.exists(path):
                 os.remove(path)
 
-    host_map = {h.hostname: h for h in web_hosts}
+    host_map = {h.hostname.lower(): h for h in web_hosts}
     total_findings = 0
 
     for line in output_lines:
@@ -74,12 +75,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         except json.JSONDecodeError:
             continue
 
-        host_str = entry.get("host", "")
-        matched_host = None
-        for hostname, host in host_map.items():
-            if hostname in host_str:
-                matched_host = host
-                break
+        matched_host = _match_finding_to_host(entry, host_map)
 
         info = entry.get("info", {})
         severity = info.get("severity", "info")
@@ -90,7 +86,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
             title=entry.get("template-id", info.get("name", "Unknown")),
             severity=severity,
             description=info.get("description", ""),
-            url=entry.get("matched-at", host_str),
+            url=entry.get("matched-at", entry.get("host", "")),
             matcher_name=entry.get("matcher-name", ""),
             template_id=entry.get("template-id", ""),
         )
@@ -102,3 +98,36 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
             matched_host.findings.append(finding)
 
     return ModuleResult(success=True, message=f"Found {total_findings} vulnerabilities")
+
+
+def _match_finding_to_host(entry: dict, host_map: dict):
+    """Exact-match a nuclei finding to a host. Avoids substring collisions
+    like api.example.com matching internal-api.example.com."""
+    candidates = []
+
+    host_str = entry.get("host", "")
+    if host_str:
+        try:
+            if "://" in host_str:
+                parsed = urlparse(host_str)
+                if parsed.hostname:
+                    candidates.append(parsed.hostname.lower())
+            else:
+                candidates.append(host_str.lower().split(":")[0])
+        except Exception:
+            pass
+
+    matched_at = entry.get("matched-at", "")
+    if matched_at:
+        try:
+            parsed = urlparse(matched_at)
+            if parsed.hostname:
+                candidates.append(parsed.hostname.lower())
+        except Exception:
+            pass
+
+    for c in candidates:
+        if c in host_map:
+            return host_map[c]
+
+    return None

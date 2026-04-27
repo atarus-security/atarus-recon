@@ -1,4 +1,4 @@
-"""Credential exposure checking via HaveIBeenPwned"""
+"""Credential exposure checking via HaveIBeenPwned with retry logic"""
 import time
 import requests
 from atarus_recon.models import ScanResult, Finding, BreachExposure, CredentialExposure
@@ -7,8 +7,10 @@ from atarus_recon.runner import ModuleResult
 
 
 HIBP_BREACHES_URL = "https://haveibeenpwned.com/api/v3/breaches"
-USER_AGENT = "atarus-recon/0.4.0 (atarus-security)"
+USER_AGENT = "atarus-recon/0.5.0 (atarus-security)"
 REQUEST_TIMEOUT = 12
+RETRY_COUNT = 2
+RETRY_BACKOFF = 4
 
 
 def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: bool) -> ModuleResult:
@@ -16,17 +18,10 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
 
     target_domain = scope.target
 
-    try:
-        resp = requests.get(
-            HIBP_BREACHES_URL,
-            params={"domain": target_domain},
-            headers={"User-Agent": USER_AGENT},
-            timeout=REQUEST_TIMEOUT,
-        )
-    except requests.exceptions.Timeout:
-        return ModuleResult(success=False, message="HIBP request timed out")
-    except requests.exceptions.RequestException as e:
-        return ModuleResult(success=False, message=f"HIBP request failed: {e}")
+    resp = _request_with_retry(target_domain)
+
+    if resp is None:
+        return ModuleResult(success=False, message="HIBP request failed after retries")
 
     if resp.status_code == 404:
         exposure = CredentialExposure(
@@ -36,18 +31,6 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         )
         result.credential_exposure = exposure
         return ModuleResult(success=True, message="No breaches found on HIBP for domain")
-
-    if resp.status_code == 429:
-        time.sleep(6)
-        try:
-            resp = requests.get(
-                HIBP_BREACHES_URL,
-                params={"domain": target_domain},
-                headers={"User-Agent": USER_AGENT},
-                timeout=REQUEST_TIMEOUT,
-            )
-        except Exception as e:
-            return ModuleResult(success=False, message=f"HIBP rate-limited and retry failed: {e}")
 
     if resp.status_code != 200:
         return ModuleResult(success=False, message=f"HIBP returned HTTP {resp.status_code}")
@@ -105,6 +88,36 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         success=True,
         message=f"{len(breaches)} breach(es) found, {total_accounts:,} accounts affected, hygiene {rating}",
     )
+
+
+def _request_with_retry(target_domain: str):
+    """GET HIBP with retries on transient failures."""
+    for attempt in range(RETRY_COUNT):
+        try:
+            resp = requests.get(
+                HIBP_BREACHES_URL,
+                params={"domain": target_domain},
+                headers={"User-Agent": USER_AGENT},
+                timeout=REQUEST_TIMEOUT,
+            )
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            if attempt < RETRY_COUNT - 1:
+                time.sleep(RETRY_BACKOFF * (attempt + 1))
+                continue
+            return None
+        except requests.exceptions.RequestException:
+            return None
+
+        if resp.status_code == 429 and attempt < RETRY_COUNT - 1:
+            time.sleep(RETRY_BACKOFF * (attempt + 1) + 2)
+            continue
+        if resp.status_code in (502, 503, 504) and attempt < RETRY_COUNT - 1:
+            time.sleep(RETRY_BACKOFF * (attempt + 1))
+            continue
+
+        return resp
+
+    return None
 
 
 def _clean_description(html: str) -> str:

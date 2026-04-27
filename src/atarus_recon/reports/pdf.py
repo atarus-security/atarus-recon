@@ -5,12 +5,19 @@ from atarus_recon.models import ScanResult
 from atarus_recon.scope import ScopeValidator
 
 
-def generate(result: ScanResult, output_dir: str) -> str:
-    """Generate a PDF report from scan results"""
+def generate(result: ScanResult, output_dir: str, existing_html_path: str = None) -> str:
+    """Generate a PDF report from scan results.
+
+    If existing_html_path is provided, reuse that HTML file rather than
+    regenerating it. cli.py passes the path it already generated.
+    """
 
     os.makedirs(output_dir, exist_ok=True)
 
-    html_path = html_report.generate(result, output_dir)
+    if existing_html_path and os.path.exists(existing_html_path):
+        html_path = existing_html_path
+    else:
+        html_path = html_report.generate(result, output_dir)
 
     with open(html_path, "r") as f:
         html_content = f.read()
@@ -70,6 +77,6 @@ def generate(result: ScanResult, output_dir: str) -> str:
     safe_target = ScopeValidator.sanitize_filename(result.target)
     pdf_path = os.path.join(output_dir, f"atarus-recon-{safe_target}.pdf")
 
-    HTML(string=html_content).write_pdf(pdf_path)
+    HTML(string=html_content, base_url=output_dir).write_pdf(pdf_path)
 
     return pdf_path

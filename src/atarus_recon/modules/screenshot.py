@@ -1,13 +1,20 @@
+"""Screenshot capture using gowitness, with output_dir respected and exact host matching"""
 import subprocess
 import os
 import tempfile
+from urllib.parse import urlparse
 from atarus_recon.models import ScanResult
 from atarus_recon.scope import ScopeValidator
 from atarus_recon.runner import ModuleResult
 
 
 def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: bool) -> ModuleResult:
-    """Capture screenshots of web services using gowitness v3"""
+    """Capture screenshots of web services using gowitness v3.
+
+    Writes screenshots into <output_dir>/screenshots/ where output_dir is the
+    directory containing the rest of the report files. Falls back to ./output
+    only if no other location can be determined.
+    """
 
     web_hosts = [h for h in result.hosts if h.ip and h.status_code > 0]
 
@@ -18,20 +25,25 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
     if not os.path.exists(gowitness_path):
         gowitness_path = "gowitness"
 
-    screenshot_dir = os.path.join(os.getcwd(), "output", "screenshots")
+    output_root = os.environ.get("ATARUS_OUTPUT_DIR") or os.path.join(os.getcwd(), "output")
+    screenshot_dir = os.path.join(output_root, "screenshots")
     os.makedirs(screenshot_dir, exist_ok=True)
 
+    url_to_host = {}
     urls = []
     for host in web_hosts:
         has_443 = any(p.number == 443 for p in host.ports)
         has_80 = any(p.number == 80 for p in host.ports)
 
         if has_443 or host.status_code == 200:
-            urls.append(f"https://{host.hostname}")
+            url = f"https://{host.hostname}"
         elif has_80:
-            urls.append(f"http://{host.hostname}")
+            url = f"http://{host.hostname}"
         else:
-            urls.append(f"https://{host.hostname}")
+            url = f"https://{host.hostname}"
+
+        url_to_host[url.lower()] = host
+        urls.append(url)
 
     fd, url_file = tempfile.mkstemp(suffix=".txt")
     try:
@@ -58,7 +70,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
             cmd,
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=300,
             env=env,
         )
 
@@ -70,13 +82,18 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         if os.path.exists(url_file):
             os.remove(url_file)
 
-    captured = _match_screenshots(web_hosts, screenshot_dir)
+    captured = _match_screenshots_exact(web_hosts, screenshot_dir)
 
     return ModuleResult(success=True, message=f"Captured {captured} screenshots")
 
 
-def _match_screenshots(hosts: list, screenshot_dir: str) -> int:
-    """Match screenshot files to hosts"""
+def _match_screenshots_exact(hosts: list, screenshot_dir: str) -> int:
+    """Match screenshot files to hosts using exact filename anchors.
+
+    gowitness names files like https---hostname-port.png. We extract the
+    hostname segment between the scheme dashes and the port and require an
+    exact match against the host's hostname.
+    """
 
     if not os.path.isdir(screenshot_dir):
         return 0
@@ -85,15 +102,38 @@ def _match_screenshots(hosts: list, screenshot_dir: str) -> int:
     if not files:
         return 0
 
+    file_to_hostname = {}
+    for filename in files:
+        if not filename.endswith(".png"):
+            continue
+        hostname = _extract_hostname_from_filename(filename)
+        if hostname:
+            file_to_hostname[filename] = hostname.lower()
+
     captured = 0
 
     for host in hosts:
-        hostname_clean = host.hostname.replace(".", "-")
-
-        for filename in files:
-            if hostname_clean in filename or host.hostname in filename:
+        host_lower = host.hostname.lower()
+        for filename, fname_host in file_to_hostname.items():
+            if fname_host == host_lower:
                 host.screenshot_path = os.path.join(screenshot_dir, filename)
                 captured += 1
                 break
 
     return captured
+
+
+def _extract_hostname_from_filename(filename: str) -> str:
+    """Parse hostname out of gowitness filenames like 'https---example.com-443.png'."""
+    base = filename.replace(".png", "")
+    parts = base.split("---", 1)
+    if len(parts) != 2:
+        return ""
+    rest = parts[1]
+    last_dash = rest.rfind("-")
+    if last_dash <= 0:
+        return rest
+    candidate_port = rest[last_dash + 1:]
+    if candidate_port.isdigit():
+        return rest[:last_dash]
+    return rest

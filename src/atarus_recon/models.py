@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Optional
 
 
 @dataclass
@@ -85,7 +86,7 @@ class ScanResult:
     total_alive: int = 0
     total_ports: int = 0
     whois_data: dict = field(default_factory=dict)
-    credential_exposure: CredentialExposure = None
+    credential_exposure: Optional[CredentialExposure] = None
 
     def add_host(self, host):
         self.hosts.append(host)
