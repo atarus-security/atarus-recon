@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import shutil
+from urllib.parse import urlparse
 from atarus_recon.models import ScanResult, Technology
 from atarus_recon.scope import ScopeValidator
 from atarus_recon.runner import ModuleResult
@@ -36,13 +37,14 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
             f"cat {host_file} | {httpx_path} "
             f"-status-code -title -tech-detect -follow-redirects "
             f"-silent -json -rate-limit {rate_limit} "
+            f"-timeout 10 "
             f"> {output_file} 2>/dev/null"
         )
 
         env = os.environ.copy()
         env["PATH"] = env.get("PATH", "") + ":" + os.path.expanduser("~/go/bin")
 
-        subprocess.run(shell_cmd, shell=True, timeout=120, env=env)
+        subprocess.run(shell_cmd, shell=True, timeout=180, env=env)
 
         if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
             return ModuleResult(success=False, message="httpx produced no output")
@@ -60,8 +62,9 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
             if os.path.exists(path):
                 os.remove(path)
 
-    host_map = {h.hostname: h for h in alive_hosts}
+    host_map = {h.hostname.lower(): h for h in alive_hosts}
     probed = 0
+    seen_hosts = set()
 
     for line in output_lines:
         if not line.strip():
@@ -71,14 +74,13 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         except json.JSONDecodeError:
             continue
 
-        hostname = entry.get("input", "")
-        matched_host = host_map.get(hostname)
-        if not matched_host:
-            host_field = entry.get("host", "")
-            matched_host = host_map.get(host_field)
-
+        matched_host = _match_host_exact(entry, host_map)
         if not matched_host:
             continue
+
+        if matched_host.hostname in seen_hosts:
+            continue
+        seen_hosts.add(matched_host.hostname)
 
         matched_host.status_code = entry.get("status_code", 0)
         matched_host.title = entry.get("title", "")
@@ -94,6 +96,34 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         probed += 1
 
     return ModuleResult(success=True, message=f"Probed {probed} web services")
+
+
+def _match_host_exact(entry: dict, host_map: dict):
+    """Exact-match the httpx result back to a host in our scan list.
+    Avoids substring collisions like api.example.com matching internal-api.example.com.
+    """
+    candidates = [
+        entry.get("input", ""),
+        entry.get("host", ""),
+    ]
+
+    url = entry.get("url", "")
+    if url:
+        try:
+            parsed = urlparse(url)
+            if parsed.hostname:
+                candidates.append(parsed.hostname)
+        except Exception:
+            pass
+
+    for c in candidates:
+        if not c:
+            continue
+        c_lower = c.strip().lower()
+        if c_lower in host_map:
+            return host_map[c_lower]
+
+    return None
 
 
 def _find_pd_httpx():
