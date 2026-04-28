@@ -9,12 +9,26 @@ Single command. Twelve modules. Every external recon step a pentester runs at th
 ```bash
 git clone https://github.com/atarus-security/atarus-recon.git
 cd atarus-recon
+
+# Install Python dependencies
 python3 -m venv venv
 source venv/bin/activate
 pip install -e .
 
+# Install external tools (subfinder, httpx, nuclei, gowitness, nmap, whois)
+./install-deps.sh
+
+# Add Go binaries to PATH (one-time)
+echo 'export PATH="$PATH:$HOME/go/bin"' >> ~/.bashrc
+source ~/.bashrc
+
+# Run a scan
 atarus-recon -t example.com --format all
 ```
+
+The `install-deps.sh` script downloads prebuilt binaries directly from GitHub releases. No Go toolchain required. Works on Kali, Debian, Ubuntu, Arch, and Fedora.
+
+If you prefer to install dependencies manually, see the per-module reference section below.
 
 That single command produces:
 
