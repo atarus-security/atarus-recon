@@ -26,7 +26,8 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         print(f"  using httpx binary: {httpx_path}")
 
     fd, host_file = tempfile.mkstemp(suffix=".txt")
-    output_file = tempfile.mktemp(suffix=".jsonl")
+    out_fd, output_file = tempfile.mkstemp(suffix=".jsonl")
+    os.close(out_fd)
 
     try:
         with os.fdopen(fd, "w") as f:
