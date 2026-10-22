@@ -10,12 +10,13 @@ Single command. Twelve modules. Every external recon step a pentester runs at th
 git clone https://github.com/atarus-security/atarus-recon.git
 cd atarus-recon
 
-# Install Python dependencies
+# Install Python dependencies (Python 3.10 or newer)
 python3 -m venv venv
 source venv/bin/activate
 pip install -e .
 
 # Install external tools (subfinder, httpx, nuclei, gowitness, nmap, whois)
+# plus the Pango libraries WeasyPrint needs for PDF export
 ./install-deps.sh
 
 # Add Go binaries to PATH (one-time)
@@ -27,6 +28,12 @@ atarus-recon -t example.com --format all
 ```
 
 The `install-deps.sh` script downloads prebuilt binaries directly from GitHub releases. No Go toolchain required. Works on Kali, Debian, Ubuntu, Arch, and Fedora.
+
+PDF export uses WeasyPrint, which needs the Pango system libraries. `install-deps.sh` installs them; to install them by hand on Debian or Kali run `sudo apt install libpango-1.0-0 libpangoft2-1.0-0`. Without them the scan, HTML and JSON reports still work and the PDF step prints an error.
+
+nuclei v3 is required (the module uses the v3 `-jsonl` and `-disable-update-check` flags). The screenshot module needs Chromium or Chrome installed for gowitness; `install-deps.sh` does not install a browser.
+
+`constraints.txt` lists the dependency versions the test suite last passed with. To reproduce that environment: `pip install -c constraints.txt -e .`
 
 If you prefer to install dependencies manually, see the per-module reference section below.
 
@@ -45,7 +52,7 @@ That single command produces:
 | crtsh | Certificate transparency subdomain enumeration | None |
 | subfinder | Passive subdomain enumeration | subfinder |
 | resolve | DNS resolution and alive filtering | None |
-| whois | WHOIS lookup and ASN identification | None |
+| whois | WHOIS lookup | None (uses the system `whois` command when present) |
 | portscan | TCP port scan with service detection | nmap |
 | webprobe | Web service fingerprinting | httpx (projectdiscovery) |
 | waf | WAF and CDN protection detection | None |
@@ -100,7 +107,7 @@ Resolves every collected subdomain via DNS. Hosts that resolve to an IP are kept
 
 **Notes for pentesters**:
 - Uses dnspython for direct DNS resolution. Honors system resolver config.
-- Handles wildcards by detecting hosts that all resolve to the same catch-all IP.
+- Wildcard DNS is not detected. If the target has a wildcard record, every enumerated name will resolve; check for this manually.
 - This is the gate between "we found a subdomain string" and "this subdomain actually exists."
 
 **No external tool required.**
@@ -109,14 +116,13 @@ Resolves every collected subdomain via DNS. Hosts that resolve to an IP are kept
 
 ### whois
 
-Pulls WHOIS data for the root domain plus ASN information for the primary IP.
+Pulls WHOIS data for the root domain.
 
 **Output added to scan**: `result.whois_data` dict with registrar, creation date, expiration date, name servers, organization, registrant
 
 **Notes for pentesters**:
-- WHOIS can hang on certain TLDs. Module has a 10 second timeout per record.
+- WHOIS can hang on certain TLDs. The module runs the system `whois` command with a 12 second timeout and falls back to python-whois if the command is missing.
 - Most registrars now redact registrant info. You will often see "REDACTED FOR PRIVACY". This is normal.
-- ASN lookup tells you the network the target is hosted on (AWS, Cloudflare, GoDaddy, etc).
 
 **No external tool required.**
 
@@ -137,7 +143,8 @@ sudo apt install nmap
 - This module IS noisy. Nmap with version detection probes every port. If your engagement requires stealth, skip this module with `--skip portscan`.
 - Service detection accuracy depends on nmap version and signature database. Run `sudo nmap --script-updatedb` to refresh.
 - Banner grabbing is on by default. Sensitive services like SMB and RDP get probed. Be sure your scope authorizes this.
-- Rate limit (`--rate-limit`) controls nmap's `--max-rate` option. Default 10 req/s is conservative.
+- nmap's `--max-rate` is set to ten times `--rate-limit`, so the default of 10 gives 100 packets per second.
+- Only public IP addresses are scanned. Hosts that resolve to private, loopback or link-local addresses are skipped.
 
 ---
 
@@ -281,7 +288,7 @@ Aggregates module outputs into a per-host risk score. Considers open ports, expo
 ### Common patterns
 
 ```bash
-# Default: full scan, HTML report only
+# Default: full scan, all report formats (HTML, PDF, JSON, CSVs)
 atarus-recon -t example.com
 
 # All output formats (HTML, PDF, JSON, CSVs)
@@ -394,6 +401,18 @@ atarus-recon -t yourcompany.com --format all -v
 - **[atarus-cloud](https://github.com/atarus-security/atarus-cloud)** - Multi-cloud security scanner (AWS + Azure)
 - **[atarus-phishcheck](https://github.com/atarus-security/atarus-phishcheck)** - Email security analyzer
 - **[atarus-report-kit](https://github.com/atarus-security/atarus-report-kit)** - Pentest report builder for juniors and students
+
+## Testing
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The tests are offline and use only the standard library. GitHub Actions runs them on every push and pull request (`.github/workflows/tests.yml`).
+
+## Security
+
+See [SECURITY.md](SECURITY.md) to report a vulnerability. Only scan domains you own or are authorized in writing to test.
 
 ## License
 
