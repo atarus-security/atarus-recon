@@ -401,6 +401,7 @@ atarus-recon -t yourcompany.com --format all -v
 - **[atarus-cloud](https://github.com/atarus-security/atarus-cloud)** - Multi-cloud security scanner (AWS + Azure)
 - **[atarus-phishcheck](https://github.com/atarus-security/atarus-phishcheck)** - Email security analyzer
 - **[atarus-report-kit](https://github.com/atarus-security/atarus-report-kit)** - Pentest report builder for juniors and students
+- **[atarus-webscan](https://github.com/atarus-security/atarus-webscan)** - Web application security scanner
 
 ## Testing
 
