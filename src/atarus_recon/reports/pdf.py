@@ -1,5 +1,4 @@
 import os
-from weasyprint import HTML
 from atarus_recon.reports import html as html_report
 from atarus_recon.models import ScanResult
 from atarus_recon.scope import ScopeValidator
@@ -11,6 +10,9 @@ def generate(result: ScanResult, output_dir: str, existing_html_path: str = None
     If existing_html_path is provided, reuse that HTML file rather than
     regenerating it. cli.py passes the path it already generated.
     """
+    # Imported here so the CLI still runs (HTML/JSON) on hosts without the
+    # Pango system libraries WeasyPrint needs. Only PDF export requires them.
+    from weasyprint import HTML
 
     os.makedirs(output_dir, exist_ok=True)
 
