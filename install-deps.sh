@@ -52,20 +52,20 @@ if [[ ":$PATH:" != *":$GOBIN_PATH:"* ]]; then
     export PATH="$PATH:$GOBIN_PATH"
 fi
 
-echo "Installing system tools (nmap, whois, unzip)..."
+echo "Installing system tools (nmap, whois, unzip, Pango for PDF export)..."
 case "$OS" in
     kali|debian|ubuntu)
         sudo apt-get update -qq 2>&1 | tail -2
-        sudo apt-get install -y nmap whois unzip 2>&1 | grep -v "is already the newest" | tail -3
+        sudo apt-get install -y nmap whois unzip libpango-1.0-0 libpangoft2-1.0-0 2>&1 | grep -v "is already the newest" | tail -3
         ;;
     arch)
-        sudo pacman -Sy --noconfirm nmap whois unzip
+        sudo pacman -Sy --noconfirm nmap whois unzip pango
         ;;
     fedora|rhel|centos)
-        sudo dnf install -y nmap whois unzip
+        sudo dnf install -y nmap whois unzip pango
         ;;
     *)
-        echo -e "${YELLOW}[!] Unknown OS. Install nmap, whois, unzip manually.${NC}"
+        echo -e "${YELLOW}[!] Unknown OS. Install nmap, whois, unzip and pango manually.${NC}"
         ;;
 esac
 echo ""

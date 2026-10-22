@@ -102,8 +102,12 @@ def main(target, output, out_format, rate_limit, verbose, skip, only, list_modul
         console.print(f"[bold green]JSON report:[/] {json_path}")
 
     if out_format in ("pdf", "all"):
-        pdf_path = pdf.generate(result, output, existing_html_path=html_path)
-        console.print(f"[bold green]PDF report:[/] {pdf_path}")
+        try:
+            pdf_path = pdf.generate(result, output, existing_html_path=html_path)
+            console.print(f"[bold green]PDF report:[/] {pdf_path}")
+        except (OSError, ImportError) as e:
+            console.print(f"[bold red]PDF report failed:[/] {str(e)[:160]}")
+            console.print("[dim]WeasyPrint needs the Pango system libraries. See README (Install).[/]")
 
 
 if __name__ == "__main__":
