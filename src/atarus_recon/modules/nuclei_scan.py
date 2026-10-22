@@ -21,7 +21,8 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         nuclei_path = "nuclei"
 
     fd, url_file = tempfile.mkstemp(suffix=".txt")
-    output_file = tempfile.mktemp(suffix=".jsonl")
+    out_fd, output_file = tempfile.mkstemp(suffix=".jsonl")
+    os.close(out_fd)
 
     try:
         with os.fdopen(fd, "w") as f:
@@ -33,10 +34,10 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         shell_cmd = (
             f"{nuclei_path} -l {url_file} "
             f"-severity low,medium,high,critical "
-            f"-silent -json "
+            f"-silent -jsonl "
             f"-rate-limit {rate_limit * 5} "
             f"-timeout 10 "
-            f"-no-update-templates "
+            f"-disable-update-check "
             f"> {output_file} 2>/dev/null"
         )
 
