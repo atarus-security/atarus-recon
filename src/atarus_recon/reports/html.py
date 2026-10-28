@@ -1,5 +1,6 @@
 import os
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from atarus_recon import __version__
 from atarus_recon.models import ScanResult
 from atarus_recon.scope import ScopeValidator
 
@@ -32,7 +33,7 @@ def generate(result: ScanResult, output_dir: str) -> str:
 
     unique_ips = len(set(h.ip for h in result.hosts if h.ip))
 
-    html_content = template.render(result=result, unique_ips=unique_ips)
+    html_content = template.render(result=result, unique_ips=unique_ips, version=__version__)
 
     safe_target = ScopeValidator.sanitize_filename(result.target)
     output_path = os.path.join(output_dir, f"atarus-recon-{safe_target}.html")

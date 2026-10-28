@@ -1,13 +1,14 @@
 """Credential exposure checking via HaveIBeenPwned with retry logic"""
 import time
 import requests
+from atarus_recon import __version__
 from atarus_recon.models import ScanResult, Finding, BreachExposure, CredentialExposure
 from atarus_recon.scope import ScopeValidator
 from atarus_recon.runner import ModuleResult
 
 
 HIBP_BREACHES_URL = "https://haveibeenpwned.com/api/v3/breaches"
-USER_AGENT = "atarus-recon/0.5.0 (atarus-security)"
+USER_AGENT = f"atarus-recon/{__version__} (atarus-security)"
 REQUEST_TIMEOUT = 12
 RETRY_COUNT = 2
 RETRY_BACKOFF = 4

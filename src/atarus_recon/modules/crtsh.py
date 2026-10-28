@@ -3,6 +3,7 @@ import ssl
 import time
 import urllib.request
 import urllib.error
+from atarus_recon import __version__
 from atarus_recon.models import ScanResult, Host
 from atarus_recon.scope import ScopeValidator
 from atarus_recon.runner import ModuleResult
@@ -27,7 +28,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
     for attempt in range(RETRY_COUNT):
         try:
             ctx = ssl.create_default_context()
-            req = urllib.request.Request(url, headers={"User-Agent": "atarus-recon/0.5.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": f"atarus-recon/{__version__}"})
             with urllib.request.urlopen(req, timeout=CRTSH_TIMEOUT, context=ctx) as response:
                 raw = response.read()
                 if len(raw) == 0:

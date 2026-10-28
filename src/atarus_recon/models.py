@@ -87,6 +87,16 @@ class ScanResult:
     total_ports: int = 0
     whois_data: dict = field(default_factory=dict)
     credential_exposure: Optional[CredentialExposure] = None
+    # Run mode record. "passive" means no packet was sent to the target's own
+    # hosts; "active" means the user placed hosts in scope and confirmed.
+    mode: str = "passive"
+    active_scope: list = field(default_factory=list)
+    confirmation: str = ""
+    # Modules that were selected but did not run, with the reason, so a report
+    # never reads as clean for a check that was never made.
+    modules_not_run: list = field(default_factory=list)
+    # Resolved hosts that fell outside --scope and were therefore not probed.
+    out_of_scope: list = field(default_factory=list)
 
     def add_host(self, host):
         self.hosts.append(host)
