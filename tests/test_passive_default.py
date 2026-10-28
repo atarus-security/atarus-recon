@@ -418,6 +418,18 @@ class FailedModuleTests(unittest.TestCase):
         self.assertIn("Nuclei was not run (nuclei exited with code 1", content)
         self.assertNotIn("No vulnerabilities detected", content)
 
+    def test_clean_nuclei_run_says_what_it_does_not_vouch_for(self):
+        result = ScanResult(target="lab.test")
+        result.add_host(Host(hostname="lab.test", ip="203.0.113.5", status_code=200))
+        result.nuclei_detail = "nuclei exited 0 with no findings; template load not verified"
+        result.finalize()
+        with tempfile.TemporaryDirectory() as d:
+            with open(html.generate(result, d)) as f:
+                content = f.read()
+        self.assertIn("No nuclei findings (template load not verified)", content)
+        self.assertNotIn("No vulnerabilities detected", content)
+        self.assertNotIn("Nuclei was not run", content)
+
     def test_crashed_module_is_recorded_as_not_run(self):
         def crashing(result, scope, rate_limit, verbose):
             raise RuntimeError("boom")

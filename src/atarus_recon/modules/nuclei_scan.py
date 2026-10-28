@@ -26,6 +26,13 @@ STDERR_TAIL = 200
 # Whole-run limit, in seconds.
 NUCLEI_TIMEOUT = 600
 
+# What a clean run says about itself: nuclei exited 0 and matched nothing, and
+# the module did not verify that templates were loaded.
+CLEAN_DETAIL = "nuclei exited 0 with no findings; template load not verified"
+
+# Phrases nuclei prints when it had nothing to run.
+NO_TEMPLATES_MARKERS = ("no templates provided", "no templates loaded", "no templates found", "0 templates loaded")
+
 
 def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: bool) -> ModuleResult:
     """Run nuclei against the discovered web hosts that are in scope"""
@@ -97,15 +104,17 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
             return ModuleResult(success=False, message="nuclei wrote no output file; check not completed")
 
         if not raw.strip():
-            # An empty file is what a clean scan writes, but it is also what a run
-            # that loaded no templates or matched nothing because every request
-            # failed writes. The two cannot be told apart here, so this is
-            # recorded as a check not made rather than as a clean result.
-            return ModuleResult(
-                success=False,
-                message=("nuclei exited 0 but wrote no output; recorded as not run rather than as a clean "
-                         f"result, because a run that loaded no templates looks the same. {_stderr_tail(proc)}").strip(),
-            )
+            # An empty file is what a clean scan writes. When nuclei said on
+            # stderr that it loaded no templates, the check was not made; in
+            # every other case this is a clean result, reported with the one
+            # thing it does not vouch for.
+            if _no_templates_loaded(proc):
+                return ModuleResult(
+                    success=False,
+                    message=f"nuclei loaded no templates, so no check was made. {_stderr_tail(proc)}".strip(),
+                )
+            result.nuclei_detail = CLEAN_DETAIL
+            return ModuleResult(success=True, message=CLEAN_DETAIL)
 
         output_lines = raw.strip().split("\n")
 
@@ -170,6 +179,13 @@ def _find_nuclei() -> str:
         if os.path.isfile(c) and os.access(c, os.X_OK):
             return c
     return shutil.which("nuclei") or ""
+
+
+def _no_templates_loaded(proc) -> bool:
+    """True when nuclei's own output says it loaded no templates."""
+    text = (proc.stderr or "") + "\n" + (proc.stdout or "")
+    text = text.lower()
+    return any(marker in text for marker in NO_TEMPLATES_MARKERS)
 
 
 def _stderr_tail(proc) -> str:
