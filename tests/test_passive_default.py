@@ -8,10 +8,12 @@ import contextlib
 import io
 import json
 import os
+import select
 import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -23,7 +25,7 @@ from atarus_recon.models import ScanResult, Host
 from atarus_recon.modules import crtsh, subfinder, resolve, whois_asn, credcheck
 from atarus_recon.modules import portscan, webprobe, waf_detect, cert_analysis, nuclei_scan, screenshot
 from atarus_recon.runner import ModuleResult, ReconRunner
-from atarus_recon.scope import ActiveScope
+from atarus_recon.scope import ActiveScope, ScopeValidator
 from atarus_recon.reports import html
 
 
@@ -143,9 +145,17 @@ class PassiveDefaultTests(unittest.TestCase):
         self.assertFalse(cert_sink.called, "the certificate module opened a connection in passive mode")
         self.assertEqual(data["mode"], "passive")
         self.assertEqual(data["confirmation"], "")
-        self.assertEqual([m["module"] for m in data["modules_not_run"]], EXPECTED_ACTIVE)
-        for m in data["modules_not_run"]:
-            self.assertIn("passive mode", m["reason"])
+        reasons = {m["module"]: m["reason"] for m in data["modules_not_run"]}
+        self.assertEqual([m["module"] for m in data["modules_not_run"] if m["module"] in EXPECTED_ACTIVE], EXPECTED_ACTIVE)
+        for key in EXPECTED_ACTIVE:
+            self.assertIn("passive mode", reasons[key])
+        # The stand-ins for whois and HIBP returned nothing, and a module that
+        # could not do its job is a check not made, so both are listed too.
+        self.assertEqual(sorted(set(reasons) - set(EXPECTED_ACTIVE)), ["credcheck", "whois"])
+        self.assertIn("WHOIS lookup returned no data", reasons["whois"])
+        # A new network sink would trip the socket guard inside a module, which
+        # the runner records as a crash; none may appear.
+        self.assertFalse([r for r in reasons.values() if r.startswith("module crashed")], reasons)
         # The passive modules still did their job.
         names = [h["hostname"] for h in data["hosts"]]
         self.assertIn("app.lab.test", names)
@@ -375,6 +385,202 @@ class PassiveReportTests(unittest.TestCase):
         self.assertIn("Out of scope, not probed", content)
         self.assertIn("cdn.lab.test", content)
         self.assertIn("atarus-recon v0.6.0", content)
+
+
+class FailedModuleTests(unittest.TestCase):
+    """A module that returns success=False, or raises, is a check not made: it goes
+    in modules_not_run and the terminal and HTML say not run, never clean."""
+
+    def _run_with(self, func, key="nuclei", name="Nuclei vulnerability scan"):
+        runner = ReconRunner(target="lab.test", output_dir=".")
+        runner.register("Seed", "seed", _seed(SEED_HOSTS), active=False)
+        runner.register(name, key, func, active=False)
+        sink = io.StringIO()
+        with mock.patch.object(runner_module, "console", Console(file=sink, width=200)), _NetworkGuard():
+            result = runner.run()
+        return result, sink.getvalue()
+
+    def test_failed_module_is_recorded_and_the_report_says_not_run(self):
+        def failing(result, scope, rate_limit, verbose):
+            return ModuleResult(success=False, message="nuclei exited with code 1; check not completed. no templates provided")
+
+        result, text = self._run_with(failing)
+        self.assertEqual(result.modules_not_run, [
+            {"module": "nuclei", "name": "Nuclei vulnerability scan",
+             "reason": "nuclei exited with code 1; check not completed. no templates provided"},
+        ])
+        self.assertIn("not run", text)
+        self.assertNotIn("warn", text)
+        self.assertIn("Modules not run: nuclei", text)
+        with tempfile.TemporaryDirectory() as d:
+            with open(html.generate(result, d)) as f:
+                content = f.read()
+        self.assertIn("Nuclei was not run (nuclei exited with code 1", content)
+        self.assertNotIn("No vulnerabilities detected", content)
+
+    def test_crashed_module_is_recorded_as_not_run(self):
+        def crashing(result, scope, rate_limit, verbose):
+            raise RuntimeError("boom")
+
+        result, text = self._run_with(crashing, key="portscan", name="Port scan")
+        self.assertEqual([m["module"] for m in result.modules_not_run], ["portscan"])
+        self.assertIn("module crashed: RuntimeError: boom", result.modules_not_run[0]["reason"])
+        self.assertIn("fail", text)
+
+    def test_httpx_no_output_reaches_the_report(self):
+        result = ScanResult(target="lab.test")
+        result.add_host(Host(hostname="lab.test", ip="203.0.113.5"))
+        with mock.patch.object(webprobe, "_find_pd_httpx", return_value="/opt/bin/httpx"), \
+             mock.patch.object(webprobe.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")):
+            res = webprobe.run(result, ScopeValidator("lab.test"), 10, False)
+        self.assertFalse(res.success)
+        self.assertIn("httpx produced no output", res.message)
+
+
+class TerminalEscapeTests(unittest.TestCase):
+    """Text that came from the target is inert on the terminal: rich markup is
+    shown literally and control characters are shown as escapes."""
+
+    def _run(self, hosts, message):
+        runner = ReconRunner(target="lab.test", output_dir=".", active=True,
+                             active_scope=ActiveScope(["203.0.113.0/24"]), assume_yes=True)
+        runner.register("Seed", "seed", _seed(hosts), active=False)
+        runner.register("WHOIS lookup", "whois", lambda r, s, rl, v: ModuleResult(True, message), active=False)
+        runner.register("Probe", "probe", _Probe().run, active=True)
+        sink = io.StringIO()
+        with mock.patch.object(runner_module, "console", Console(file=sink, width=200)), _NetworkGuard():
+            runner.run()
+        return sink.getvalue()
+
+    def test_markup_in_a_host_name_is_shown_not_interpreted(self):
+        text = self._run([("[red]evil[/red].lab.test", "203.0.113.9")], "Registrar: fine")
+        self.assertIn("[red]evil[/red].lab.test", text)
+
+    def test_control_characters_in_a_module_message_are_escaped(self):
+        text = self._run(SEED_HOSTS, "Registrar: [bold red]owned[/] \x1b[2J\x1b]0;pwned\x07 Org: \u202ereversed")
+        self.assertIn("Registrar: [bold red]owned[/] \\x1b[2J\\x1b]0;pwned\\x07 Org: \\u202ereversed", text)
+        for ch in text:
+            self.assertTrue(ord(ch) >= 0x20 or ch == "\n", f"control character reached the terminal: {ch!r}")
+
+    def test_safe_text_matches_the_vendored_behaviour(self):
+        self.assertEqual(scope_module.safe_text("PHP/8.2.0\x1b[2J\x1b]0;owned\x07"), "PHP/8.2.0\\x1b[2J\\x1b]0;owned\\x07")
+        self.assertEqual(scope_module.safe_text("a\r\nb\tc"), "a b c")
+        self.assertEqual(scope_module.safe_text("x\x7fy\x9bz"), "x\\x7fy\\x9bz")
+        self.assertEqual(scope_module.safe_text("abcdefghij", 5), "abcde [cut]")
+        self.assertEqual(scope_module.safe_text(None), "")
+
+
+def _pty_supported():
+    try:
+        import pty  # noqa: F401
+    except ImportError:
+        return False
+    return hasattr(os, "fork") and sys.platform != "win32"
+
+
+class PseudoTerminalGateTests(unittest.TestCase):
+    """The gate on a real terminal. The child of pty.fork has the pseudo-terminal
+    as its controlling terminal, so /dev/tty is the real path here, not a file
+    standing in for it; a regression in how the terminal is opened (the
+    0.6.0 r+ bug) fails these tests."""
+
+    PROMPT_MARK = b"Type yes to"
+    DEADLINE = 30
+
+    def _in_pty(self, child, answer):
+        """Run child() in a pty.fork child, answer the prompt, return (output, exit code).
+
+        child() returns the text the child prints after the prompt was answered."""
+        import pty
+        try:
+            pid, fd = pty.fork()
+        except OSError as e:
+            self.skipTest(f"pseudo-terminal not available: {e}")
+        if pid == 0:
+            code = 3
+            try:
+                text = child()
+                os.write(1, ("\nRESULT=" + text + "\n").encode("utf-8", "replace"))
+                code = 0
+            except BaseException as e:  # noqa: BLE001
+                try:
+                    os.write(1, f"\nCHILD ERROR {e!r}\n".encode("utf-8", "replace"))
+                except OSError:
+                    pass
+            finally:
+                os._exit(code)
+
+        out = b""
+        answered = False
+        status = None
+        deadline = time.time() + self.DEADLINE
+        try:
+            while time.time() < deadline:
+                ready, _, _ = select.select([fd], [], [], 0.2)
+                if ready:
+                    try:
+                        chunk = os.read(fd, 4096)
+                    except OSError:
+                        break  # EIO once the child has closed its side (Linux)
+                    if not chunk:
+                        break  # EOF (macOS)
+                    out += chunk
+                    if not answered and self.PROMPT_MARK in out:
+                        os.write(fd, answer.encode() + b"\n")
+                        answered = True
+                    continue
+                done, st = os.waitpid(pid, os.WNOHANG)
+                if done:
+                    status = st
+                    # Drain whatever is left.
+                    while True:
+                        ready, _, _ = select.select([fd], [], [], 0.2)
+                        if not ready:
+                            break
+                        try:
+                            chunk = os.read(fd, 4096)
+                        except OSError:
+                            break
+                        if not chunk:
+                            break
+                        out += chunk
+                    break
+            else:
+                os.kill(pid, 9)
+                self.fail(f"child did not finish in {self.DEADLINE}s; output so far: {out!r}")
+            if status is None:
+                _, status = os.waitpid(pid, 0)
+        finally:
+            os.close(fd)
+        return out.decode("utf-8", "replace"), os.waitstatus_to_exitcode(status)
+
+    @unittest.skipUnless(_pty_supported(), "needs a POSIX pseudo-terminal")
+    def test_read_tty_line_reads_from_the_real_controlling_terminal(self):
+        def child():
+            available = scope_module.tty_available()
+            line = scope_module.read_tty_line("Type yes to continue: ")
+            return f"available={available} line={line!r}"
+
+        for answer in ("yes", "no"):
+            out, code = self._in_pty(child, answer)
+            self.assertEqual(code, 0, out)
+            self.assertIn("Type yes to continue:", out, "the prompt must be written to the terminal")
+            self.assertIn(f"RESULT=available=True line={answer!r}", out)
+
+    @unittest.skipUnless(_pty_supported(), "needs a POSIX pseudo-terminal")
+    def test_gate_opens_on_yes_and_blocks_on_no_typed_on_a_terminal(self):
+        def child():
+            runner, probe = _make_runner(active=True, assume_yes=False)
+            result = runner.run()
+            return f"confirmation={result.confirmation!r} probed={probe.calls!r} not_run={[m['module'] for m in result.modules_not_run]!r}"
+
+        out, code = self._in_pty(child, "yes")
+        self.assertEqual(code, 0, out)
+        self.assertIn("RESULT=confirmation='typed yes on the terminal' probed=[['app.lab.test'], ['app.lab.test']] not_run=[]", out)
+
+        out, code = self._in_pty(child, "no")
+        self.assertEqual(code, 0, out)
+        self.assertIn("RESULT=confirmation='' probed=[] not_run=['probe', 'probe2']", out)
 
 
 if __name__ == "__main__":

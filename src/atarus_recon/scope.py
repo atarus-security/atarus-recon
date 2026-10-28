@@ -1,5 +1,6 @@
 import os
 import re
+import unicodedata
 import ipaddress
 from urllib.parse import urlparse
 
@@ -240,3 +241,39 @@ def read_tty_line(prompt: str):
     if not line:
         return None
     return line.strip()
+
+
+# Characters that must not reach a terminal or a report as they are:
+#   Cc  C0 and C1 control characters, including ESC, BEL, CR, LF, DEL
+#   Cf  format characters: bidirectional overrides, zero-width joiners, soft hyphen
+#   Cs  lone surrogates
+#   Zl  line separator, Zp  paragraph separator
+_UNSAFE_CATEGORIES = ("Cc", "Cf", "Cs", "Zl", "Zp")
+_BLANK = ("\t", "\n", "\r", "\x0b", "\x0c", " ", " ")
+
+
+def safe_text(text: object, limit: int = None) -> str:
+    """Text taken from a target, made safe to print on one line.
+
+    Tabs, newlines and other line breaks become single spaces. Every other
+    control, format or separator character is shown in escaped form
+    (\\x1b, \\u202e) so that it is visible in the evidence but inert. Runs of
+    spaces are collapsed. With limit, longer text is cut and marked.
+    """
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+    out = []
+    for ch in text:
+        if ch in _BLANK:
+            out.append(" ")
+        elif unicodedata.category(ch) in _UNSAFE_CATEGORIES:
+            code = ord(ch)
+            out.append("\\x%02x" % code if code < 0x100 else "\\u%04x" % code)
+        else:
+            out.append(ch)
+    cleaned = re.sub(r" {2,}", " ", "".join(out)).strip()
+    if limit is not None and limit > 0 and len(cleaned) > limit:
+        cleaned = cleaned[:limit].rstrip() + " [cut]"
+    return cleaned

@@ -38,7 +38,7 @@ The `install-deps.sh` script downloads prebuilt binaries directly from GitHub re
 
 PDF export uses WeasyPrint, which needs the Pango system libraries. `install-deps.sh` installs them; to install them by hand on Debian or Kali run `sudo apt install libpango-1.0-0 libpangoft2-1.0-0`. Without them the scan, HTML and JSON reports still work and the PDF step prints an error.
 
-nuclei v3 is required (the module uses the v3 `-jsonl` and `-disable-update-check` flags). The screenshot module needs Chromium or Chrome installed for gowitness; `install-deps.sh` does not install a browser.
+nuclei v3 is required (the module uses the v3 `-jsonl`, `-disable-update-check`, `-ni` and `-disable-redirects` flags). nuclei, nmap, httpx and gowitness are run as argument lists with their exit codes checked: a missing binary, a non-zero exit, a timeout or no output is reported as the module not having run, with the reason, in the terminal and in the report, never as a clean result. The screenshot module needs Chromium or Chrome installed for gowitness; `install-deps.sh` does not install a browser.
 
 `constraints.txt` lists the dependency versions the test suite last passed with. To reproduce that environment: `pip install -c constraints.txt -e .`
 
@@ -382,7 +382,7 @@ Without `--active`, only the passive modules run: `crtsh`, `subfinder`, `resolve
 
 2. **A confirmation the software cannot give for you.** Before the first packet to the target, after the passive modules have resolved the hosts, the tool prints the exact scope, the list of active modules, and every host that will be probed with its resolved IP, then waits for you to type the word `yes` on the controlling terminal (`/dev/tty`). Anything else, end of file, or no terminal at all means the active modules do not run; the passive results and the report are still written.
 
-   For non-interactive runs, `--yes` stands in for the typed word. It is accepted only together with `--scope`, it is printed at the start of the run, and it is recorded in the report (`confirmation`). No environment variable and no configuration file can stand in for the confirmation: the tool reads neither for these options. An automation or AI agent driving the CLI can pass flags, but it cannot answer `/dev/tty`, which is the point.
+   For non-interactive runs, `--yes` stands in for the typed word. It is accepted only together with `--scope`, it is printed at the start of the run, and it is recorded in the report (`confirmation`). No environment variable and no configuration file can stand in for the confirmation: the tool reads neither for these options. Be precise about what this does and does not protect against. An automation or AI agent driving the CLI cannot answer `/dev/tty`, but it can pass `--yes` together with `--scope`, and that opens the gate without a terminal; the report then records `--yes flag (no terminal confirmation)`. In a non-interactive run the scope file is the control: keep it under your own change control and treat a `--yes` run as authorized exactly as far as that file says, no further.
 
    `--active` without `--scope`, `--yes` without `--scope`, `--only` naming an active module without `--active`, and `--active` with neither a terminal nor `--yes` all stop with a usage error before anything runs.
 
@@ -402,7 +402,7 @@ If you need to scan multiple unrelated domains, run the tool once per target, ea
 | webprobe | active | every in-scope alive host, HTTP and HTTPS | httpx GET requests, following redirects | `--active` only, after confirmation |
 | waf | active | every in-scope web host | one HTTPS HEAD request to `/`, then HTTP if that fails | `--active` only, after confirmation |
 | cert | active | every in-scope web host, port 443 | one TLS handshake | `--active` only, after confirmation |
-| nuclei | active | every in-scope web host | nuclei templates at low severity and above: many HTTP requests per host | `--active` only, after confirmation |
+| nuclei | active | every in-scope web host | nuclei templates at low severity and above: many HTTP requests per host; redirects disabled (`-disable-redirects`), no interactsh callbacks (`-ni`), so nothing goes to ProjectDiscovery's out of band server | `--active` only, after confirmation, when nuclei is installed |
 | screenshot | active | every in-scope web host | headless browser page loads through gowitness, following navigations | `--active` only, after confirmation |
 
 The target domain is disclosed to the passive third parties (crt.sh, subfinder's sources, whois, HaveIBeenPwned). Skip a module with `--skip` if an engagement forbids that.

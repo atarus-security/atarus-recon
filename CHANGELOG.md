@@ -6,6 +6,16 @@ All notable changes to atarus-recon. Dates are commit dates. Version numbers in 
 
 ### Security
 
+- **nuclei, nmap, httpx and gowitness failures are reported as checks not made, never as clean results.**
+
+  What was wrong: the nuclei module ran the binary through a shell string with stderr sent to /dev/null, never looked at the exit code, and treated an empty output file as "No vulnerabilities found". A missing binary (shell exit 127), a template error, a crash or a timeout all read as a clean scan, and the HTML report then printed "No vulnerabilities detected by nuclei". The nmap and gowitness wrappers ignored their exit codes too, so a failed nmap read as zero open ports and a failed gowitness as zero screenshots. A module that reported failure (`success=False`) was printed as a warning in the terminal but was not added to the report's list of modules not run, so "httpx produced no output" never reached the report and the report still read as clean for that check.
+
+  Correction to this changelog: the "Fixed" entry below about nuclei v3 flags was written as if it closed this. It did not. Before this commit the only change was the two flags (`-jsonl`, `-disable-update-check`), which made nuclei start again. The exit code was still ignored, stderr was still discarded and an empty output file still counted as clean, so the same false-clean report was still possible whenever nuclei failed for any other reason. The audit's High on this point stayed open until now.
+
+  What changed: nuclei is run as an argument list (no shell), with stderr captured and the exit code checked, and with `-ni` (no interactsh out of band callbacks to a third-party server) and `-disable-redirects`. A missing binary, a non-zero exit, a timeout or an empty output file is returned as not run with the reason, including the tail of nuclei's stderr, and the HTML report says "Nuclei was not run" with that reason instead of "No vulnerabilities detected". An empty output file is treated this way on purpose: it is what a clean scan writes, but also what a run that loaded no templates writes, and the two cannot be told apart. nmap and gowitness get the same treatment: a non-zero exit, a missing binary or a timeout is a not-run with the reason, and for nmap the message names the addresses whose ports are therefore unknown. httpx (webprobe) was moved off the shell string as well and checks its exit code. The runner records every module that returns `success=False`, or raises, in `modules_not_run` with its message; the terminal line reads "not run" and the report cannot show a clean section for it.
+
+- **Target-controlled text is escaped before it reaches the terminal.** whois registrar and organisation fields, subfinder's stderr, nuclei, nmap, httpx and gowitness output and discovered host names were printed through rich's console as markup, so `[red]` sequences and control characters in a whois record or a certificate name could style, clear or retitle the operator's terminal. `scope.safe_text` (vendored from atarus-phpcheck) replaces control, format and separator characters with their visible escapes, and every console line built from target-derived text goes through `rich.markup.escape(safe_text(...))`. The HTML and JSON reports were already escaped.
+
 - Fixed: the typed confirmation gate could never open on a real terminal. The terminal was opened in a mode that needs a seekable stream, which a terminal is not, so every interactive active run was refused with the no-terminal error and only --yes worked. The terminal is now opened as a raw descriptor and the prompt is written and read through it; verified on a pseudo-terminal.
 
 - **Passive by default; active checks need `--active`, `--scope` and a typed confirmation.**
@@ -19,18 +29,20 @@ All notable changes to atarus-recon. Dates are commit dates. Version numbers in 
   Known limits, still open: httpx and gowitness follow redirects off-domain, and the confirmation prompt shows resolved IPs but not their owner (CNAME target or ASN). Both are tracked in the README's Known issues.
 
 ### Fixed
-- nuclei module: nuclei v3 removed `-json` and `-no-update-templates`, so nuclei exited with an error and every scan silently reported "No vulnerabilities found". The module now passes `-jsonl` and `-disable-update-check`.
+- nuclei module: nuclei v3 removed `-json` and `-no-update-templates`, so nuclei exited with an error and every scan silently reported "No vulnerabilities found". The module now passes `-jsonl` and `-disable-update-check`. This entry fixed the flags only; the exit code and empty output handling that let any other nuclei failure read as clean stayed open until the Security entry above.
 - HTML report template moved into the package (`src/atarus_recon/templates/`), so non-editable installs (`pip install .`, pipx) can write reports.
 - WeasyPrint is imported only for PDF export. The CLI now starts, and HTML and JSON reports work, on hosts without the Pango system libraries; a missing library produces a clear PDF error instead of a crash.
 - Replaced deprecated `tempfile.mktemp` with `mkstemp` in the nuclei and webprobe modules.
 
 ### Added
+- Tests: the confirmation gate is exercised on a real pseudo-terminal (`pty.fork`), not a regular file standing in for `/dev/tty`, so a regression in how the terminal is opened fails the suite; nuclei, nmap and gowitness are tested with a non-zero exit, a missing binary and an empty output file; a module that fails is checked to land in `modules_not_run` and to make the HTML say not run; rich markup and control characters in host names and module messages are checked to be escaped.
 - Offline unit tests (`tests/`) and a GitHub Actions workflow. `tests/test_passive_default.py` covers the passive default (every network sink mocked, socket layer guarded), the `--active` and `--yes` usage errors, out-of-scope skipping and the confirmation gate.
 - `install-deps.sh` installs Pango for PDF export.
 - `constraints.txt` with the dependency versions the tests last passed with.
 - SECURITY.md and this changelog.
 
 ### Docs
+- README: the sentence saying an automation or AI agent driving the CLI cannot pass the gate was wrong and is corrected: `--yes` together with `--scope` opens the gate without a terminal and is recorded in the report, so in non-interactive runs the scope file is the control. The nuclei row of the network table lists `-ni` and `-disable-redirects`; the install notes say that external binaries' exit codes are checked.
 - README: default is passive, how to run active checks, the scope and confirmation rules, a per-module table of what is sent over the network, WAF detection corrected (it sends a HEAD request, it is not passive). Earlier corrections: default output format is `all`, the whois module does not do ASN lookups, DNS wildcards are not detected, nmap max-rate is ten times `--rate-limit`, private IPs are not port scanned, nuclei v3 and a browser for gowitness are required.
 
 ## 0.5.0 (2026-04-27)

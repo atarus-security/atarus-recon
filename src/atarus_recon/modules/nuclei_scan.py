@@ -1,6 +1,18 @@
-import subprocess
+"""Templated vulnerability scanning with nuclei.
+
+Active module: nuclei sends many requests to every in-scope web host, so it
+runs only behind --active, inside --scope and after the confirmation gate.
+
+nuclei is run as an argument list, never through a shell. Its exit code is
+checked and its stderr is kept, so a missing binary, a template error, a
+crash, a timeout or a run that wrote nothing is reported as the check not
+having run, with the reason, never as a clean result. Interactsh (out of
+band callbacks through a third-party server) and redirects are disabled.
+"""
 import json
 import os
+import shutil
+import subprocess
 import tempfile
 from urllib.parse import urlparse
 from atarus_recon.models import ScanResult, Finding
@@ -8,17 +20,28 @@ from atarus_recon.scope import ScopeValidator
 from atarus_recon.runner import ModuleResult
 
 
+# How much of nuclei's stderr is kept for the not-run reason.
+STDERR_TAIL = 200
+
+# Whole-run limit, in seconds.
+NUCLEI_TIMEOUT = 600
+
+
 def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: bool) -> ModuleResult:
-    """Run nuclei vulnerability scanner against discovered web hosts"""
+    """Run nuclei against the discovered web hosts that are in scope"""
 
     web_hosts = [h for h in result.hosts if h.ip and h.status_code > 0]
 
     if not web_hosts:
-        return ModuleResult(success=False, message="No web hosts to scan")
+        return ModuleResult(success=False, message="no web hosts to scan (webprobe found none)")
 
-    nuclei_path = os.path.expanduser("~/go/bin/nuclei")
-    if not os.path.exists(nuclei_path):
-        nuclei_path = "nuclei"
+    nuclei_path = _find_nuclei()
+    if not nuclei_path:
+        return ModuleResult(
+            success=False,
+            message="nuclei not found; install with ./install-deps.sh or "
+                    "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
+        )
 
     fd, url_file = tempfile.mkstemp(suffix=".txt")
     out_fd, output_file = tempfile.mkstemp(suffix=".jsonl")
@@ -31,38 +54,70 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
                 scheme = "https" if has_443 or host.status_code == 200 else "http"
                 f.write(f"{scheme}://{host.hostname}\n")
 
-        shell_cmd = (
-            f"{nuclei_path} -l {url_file} "
-            f"-severity low,medium,high,critical "
-            f"-silent -jsonl "
-            f"-rate-limit {rate_limit * 5} "
-            f"-timeout 10 "
-            f"-disable-update-check "
-            f"> {output_file} 2>/dev/null"
-        )
+        cmd = [
+            nuclei_path,
+            "-l", url_file,
+            "-severity", "low,medium,high,critical",
+            "-silent",
+            "-jsonl",
+            "-o", output_file,
+            "-no-color",
+            "-rate-limit", str(rate_limit * 5),
+            "-timeout", "10",
+            "-disable-update-check",
+            # No interactsh: no out of band callbacks through a third-party server.
+            "-ni",
+            # Stay on the hosts in scope: nuclei must not follow redirects elsewhere.
+            "-disable-redirects",
+        ]
 
         env = os.environ.copy()
         env["PATH"] = os.path.expanduser("~/go/bin") + ":" + env.get("PATH", "")
 
-        subprocess.run(shell_cmd, shell=True, timeout=600, env=env)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=NUCLEI_TIMEOUT, env=env)
+        except subprocess.TimeoutExpired:
+            return ModuleResult(
+                success=False,
+                message=f"nuclei timed out after {NUCLEI_TIMEOUT} seconds; check not completed",
+            )
+        except OSError as e:
+            return ModuleResult(success=False, message=f"nuclei could not be started: {type(e).__name__}")
 
-        if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
-            return ModuleResult(success=True, message="No vulnerabilities found")
+        if proc.returncode != 0:
+            return ModuleResult(
+                success=False,
+                message=f"nuclei exited with code {proc.returncode}; check not completed. {_stderr_tail(proc)}".strip(),
+            )
 
-        with open(output_file, "r") as f:
-            output_lines = f.read().strip().split("\n")
+        try:
+            with open(output_file, "r") as f:
+                raw = f.read()
+        except OSError:
+            return ModuleResult(success=False, message="nuclei wrote no output file; check not completed")
+
+        if not raw.strip():
+            # An empty file is what a clean scan writes, but it is also what a run
+            # that loaded no templates or matched nothing because every request
+            # failed writes. The two cannot be told apart here, so this is
+            # recorded as a check not made rather than as a clean result.
+            return ModuleResult(
+                success=False,
+                message=("nuclei exited 0 but wrote no output; recorded as not run rather than as a clean "
+                         f"result, because a run that loaded no templates looks the same. {_stderr_tail(proc)}").strip(),
+            )
+
+        output_lines = raw.strip().split("\n")
 
         if verbose:
-            print(f"  nuclei results: {len(output_lines)} findings")
+            print(f"  nuclei results: {len(output_lines)} lines")
 
-    except subprocess.TimeoutExpired:
-        return ModuleResult(success=False, message="nuclei timed out (10 min limit)")
-    except FileNotFoundError:
-        return ModuleResult(success=False, message="nuclei not found")
     finally:
-        for path in [url_file, output_file]:
-            if os.path.exists(path):
+        for path in (url_file, output_file):
+            try:
                 os.remove(path)
+            except OSError:
+                pass
 
     host_map = {h.hostname.lower(): h for h in web_hosts}
     total_findings = 0
@@ -98,7 +153,29 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         if matched_host:
             matched_host.findings.append(finding)
 
-    return ModuleResult(success=True, message=f"Found {total_findings} vulnerabilities")
+    return ModuleResult(
+        success=True,
+        message=f"Found {total_findings} findings at low severity or above across {len(web_hosts)} web hosts",
+    )
+
+
+def _find_nuclei() -> str:
+    """Locate the nuclei binary; empty string when it is not installed."""
+    candidates = [
+        os.path.expanduser("~/go/bin/nuclei"),
+        "/usr/local/bin/nuclei",
+        "/usr/bin/nuclei",
+    ]
+    for c in candidates:
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return shutil.which("nuclei") or ""
+
+
+def _stderr_tail(proc) -> str:
+    """The last STDERR_TAIL characters of what the binary said, on one line."""
+    text = (proc.stderr or proc.stdout or "").strip().replace("\n", " ")
+    return text[-STDERR_TAIL:]
 
 
 def _match_finding_to_host(entry: dict, host_map: dict):

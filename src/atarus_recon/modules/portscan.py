@@ -7,8 +7,20 @@ from atarus_recon.scope import ScopeValidator
 from atarus_recon.runner import ModuleResult
 
 
+# How much of nmap's stderr is kept for the not-run reason.
+STDERR_TAIL = 200
+
+# Per-address limit, in seconds.
+NMAP_TIMEOUT = 300
+
+
 def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: bool) -> ModuleResult:
-    """Run nmap port scan against alive hosts"""
+    """Run nmap against the alive hosts in scope.
+
+    nmap is run as an argument list and its exit code is checked. A missing
+    binary, a non-zero exit, a timeout or unparseable output is returned as
+    the check not having run, with the reason, never as zero open ports.
+    """
 
     alive_hosts = [h for h in result.hosts if h.ip]
 
@@ -30,6 +42,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
 
     unique_ips = list(ip_to_hosts.keys())
     total_ports = 0
+    failures = []
 
     for ip in unique_ips:
         xml_path = None
@@ -46,28 +59,47 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
                 ip,
             ]
 
-            subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            ports_found = _parse_nmap_xml(xml_path, ip, ip_to_hosts)
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=NMAP_TIMEOUT)
+            if proc.returncode != 0:
+                tail = (proc.stderr or proc.stdout or "").strip().replace("\n", " ")[-STDERR_TAIL:]
+                failures.append(f"{ip}: nmap exited with code {proc.returncode} {tail}".strip())
+                continue
+            try:
+                ports_found = _parse_nmap_xml(xml_path, ip, ip_to_hosts)
+            except ET.ParseError:
+                failures.append(f"{ip}: nmap output could not be parsed")
+                continue
             total_ports += ports_found
 
         except subprocess.TimeoutExpired:
-            if verbose:
-                print(f"  Nmap timeout on {ip}")
-        except FileNotFoundError:
-            return ModuleResult(success=False, message="nmap not found in PATH")
+            failures.append(f"{ip}: nmap timed out after {NMAP_TIMEOUT} seconds")
+        except OSError as e:
+            # FileNotFoundError when nmap is not installed, PermissionError and the like.
+            return ModuleResult(
+                success=False,
+                message=f"nmap could not be started ({type(e).__name__}); install nmap and make sure it is on PATH",
+            )
         finally:
             if xml_path and os.path.exists(xml_path):
                 os.remove(xml_path)
+
+    if failures:
+        # Ports found on the other addresses stay on their hosts; the module as a
+        # whole did not complete, and the report must not read as a clean scan
+        # for the addresses that were not covered.
+        return ModuleResult(
+            success=False,
+            message=(f"nmap did not complete on {len(failures)} of {len(unique_ips)} addresses, so their open "
+                     f"ports are unknown: " + "; ".join(failures))[:600],
+        )
 
     return ModuleResult(success=True, message=f"Found {total_ports} open ports across {len(unique_ips)} IPs")
 
 
 def _parse_nmap_xml(xml_path: str, ip: str, ip_to_hosts: dict) -> int:
-    try:
-        tree = ET.parse(xml_path)
-        root = tree.getroot()
-    except ET.ParseError:
-        return 0
+    """Read open ports out of nmap's XML. Raises ET.ParseError on a broken file."""
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
 
     ports_found = 0
 
