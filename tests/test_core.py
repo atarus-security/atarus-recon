@@ -104,13 +104,21 @@ class NucleiTests(unittest.TestCase):
         self.assertIn("timed out", res.message)
         self.assertIn("not completed", res.message)
 
-    def test_empty_output_is_not_run_rather_than_clean(self):
+    def test_empty_output_with_exit_0_is_clean_with_an_honest_detail(self):
         res, result, _ = self._run(returncode=0, records=[])
-        self.assertFalse(res.success, "an empty output file must not read as a clean scan")
-        self.assertIn("not run", res.message)
-        self.assertIn("no output", res.message)
-        self.assertNotIn("No vulnerabilities", res.message)
+        self.assertTrue(res.success, res.message)
+        self.assertEqual(res.message, "nuclei exited 0 with no findings; template load not verified")
+        self.assertEqual(result.nuclei_detail, res.message)
         self.assertEqual(result.findings, [])
+
+    def test_empty_output_with_no_templates_on_stderr_is_not_run(self):
+        for stderr in ("[WRN] No templates provided for scan", "[INF] 0 templates loaded for current scan"):
+            res, result, _ = self._run(returncode=0, records=[], stderr=stderr)
+            self.assertFalse(res.success, stderr)
+            self.assertIn("loaded no templates", res.message)
+            self.assertIn("no check was made", res.message)
+            self.assertEqual(result.nuclei_detail, "")
+            self.assertEqual(result.findings, [])
 
 
 class NmapTests(unittest.TestCase):

@@ -97,6 +97,9 @@ class ScanResult:
     modules_not_run: list = field(default_factory=list)
     # Resolved hosts that fell outside --scope and were therefore not probed.
     out_of_scope: list = field(default_factory=list)
+    # Set by the nuclei module when it ran to completion and found nothing:
+    # says plainly what that result does and does not vouch for.
+    nuclei_detail: str = ""
 
     def add_host(self, host):
         self.hosts.append(host)

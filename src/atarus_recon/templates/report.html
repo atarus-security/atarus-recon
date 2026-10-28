@@ -578,6 +578,8 @@
     {% set nuclei_not_run = result.modules_not_run | selectattr('module', 'equalto', 'nuclei') | list %}
     {% if nuclei_not_run %}
     <div class="no-data">Nuclei was not run ({{ nuclei_not_run[0].reason }}), so no vulnerability check was made.</div>
+    {% elif result.nuclei_detail %}
+    <div class="no-data">No nuclei findings (template load not verified).</div>
     {% else %}
     <div class="no-data">No vulnerabilities detected by nuclei.</div>
     {% endif %}
