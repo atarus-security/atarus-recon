@@ -6,6 +6,8 @@ All notable changes to atarus-recon. Dates are commit dates. Version numbers in 
 
 ### Security
 
+- Fixed: the typed confirmation gate could never open on a real terminal. The terminal was opened in a mode that needs a seekable stream, which a terminal is not, so every interactive active run was refused with the no-terminal error and only --yes worked. The terminal is now opened as a raw descriptor and the prompt is written and read through it; verified on a pseudo-terminal.
+
 - **Passive by default; active checks need `--active`, `--scope` and a typed confirmation.**
 
   What was wrong: a bare `atarus-recon -t example.com` port scanned every resolved IP with nmap, probed every web service with httpx, sent HEAD requests for WAF detection, opened TLS connections, ran every nuclei template at low severity and above, and drove a headless browser across the hosts, with no question asked. The only limit on where that traffic went was the name filter (anything ending in the target domain), so a subdomain pointing at a CDN, a SaaS vendor or a dangling record owned by someone else was scanned too. The person running the tool carried that exposure, and the project's own statement that active checks always ask was not true.
