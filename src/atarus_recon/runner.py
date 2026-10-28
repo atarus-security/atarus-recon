@@ -1,13 +1,25 @@
 import traceback
 from contextlib import contextmanager
 from rich.console import Console
+from rich.markup import escape
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from atarus_recon.models import ScanResult
-from atarus_recon.scope import ScopeValidator, read_tty_line
+from atarus_recon.scope import ScopeValidator, read_tty_line, safe_text
 
 console = Console()
 
 CONFIRM_WORD = "yes"
+
+
+def shown(text) -> str:
+    """Target-derived text made inert for the terminal.
+
+    Control, format and separator characters become visible escapes
+    (safe_text) and rich markup brackets are neutralised (escape), so a whois
+    record, a certificate name or a binary's stderr cannot style, clear or
+    retitle the operator's terminal.
+    """
+    return escape(safe_text(text))
 
 
 class ModuleResult:
@@ -66,9 +78,12 @@ class ReconRunner:
     def selected_modules(self) -> list:
         return [m for m in self.modules if self._should_run(m["key"])]
 
-    def _not_run(self, module: dict, reason: str):
+    def _record_not_run(self, module: dict, reason: str):
         self.result.modules_not_run.append({"module": module["key"], "name": module["name"], "reason": reason})
-        console.print(f"  [dim]not run[/] [bold cyan]{module['name']}[/]: {reason}")
+
+    def _not_run(self, module: dict, reason: str):
+        self._record_not_run(module, reason)
+        console.print(f"  [dim]not run[/] [bold cyan]{escape(module['name'])}[/]: {shown(reason)}")
         console.print()
 
     @contextmanager
@@ -100,13 +115,13 @@ class ReconRunner:
         if in_scope:
             console.print(f"  [bold white]Hosts to probe ({len(in_scope)}):[/]")
             for h in in_scope:
-                console.print(f"    {h.hostname} -> {h.ip}")
+                console.print(f"    {shown(h.hostname)} -> {shown(h.ip)}")
         else:
             console.print("  [bold white]Hosts to probe:[/] none")
         if out_of_scope:
             console.print(f"  [bold white]Out of scope, not probed ({len(out_of_scope)}):[/]")
             for h in out_of_scope:
-                console.print(f"    {h.hostname} -> {h.ip}")
+                console.print(f"    {shown(h.hostname)} -> {shown(h.ip)}")
         console.print()
 
         if not in_scope:
@@ -140,7 +155,7 @@ class ReconRunner:
 
         with Progress(
             SpinnerColumn(),
-            TextColumn(f"[bold cyan]{name}[/]"),
+            TextColumn(f"[bold cyan]{escape(name)}[/]"),
             TimeElapsedColumn(),
             console=console,
             transient=False,
@@ -151,15 +166,21 @@ class ReconRunner:
                 module_result = func(self.result, self.scope, self.rate_limit, self.verbose)
 
                 if module_result.success:
-                    console.print(f"  [green]done[/] {module_result.message}")
+                    console.print(f"  [green]done[/] {shown(module_result.message)}")
                 else:
-                    console.print(f"  [yellow]warn[/] {module_result.message}")
+                    # The check was not made, or did not complete. It goes in the
+                    # report's not-run list with the module's own reason, so
+                    # neither the terminal nor the report shows a clean line for it.
+                    self._record_not_run(module, module_result.message)
+                    console.print(f"  [yellow]not run[/] {shown(module_result.message)}")
 
             except Exception as e:
                 err_type = type(e).__name__
-                console.print(f"  [red]fail[/] {name}: {err_type}: {str(e)[:120]}")
+                reason = f"module crashed: {err_type}: {str(e)[:120]}"
+                self._record_not_run(module, reason)
+                console.print(f"  [red]fail[/] {escape(name)}: {shown(reason)}")
                 if self.verbose:
-                    console.print(f"[red]{traceback.format_exc()}[/]")
+                    console.print(f"[red]{escape(traceback.format_exc())}[/]")
 
         console.print()
 
@@ -167,8 +188,8 @@ class ReconRunner:
         console.print()
 
         if not self.scope.validate_target():
-            console.print(f"[bold red]Invalid target:[/] {self.target}")
-            console.print(f"[dim]Cleaned to:[/] {self.scope.target}")
+            console.print(f"[bold red]Invalid target:[/] {shown(self.target)}")
+            console.print(f"[dim]Cleaned to:[/] {shown(self.scope.target)}")
             console.print(f"[dim]Hint:[/] target must be a domain like example.com or sub.example.com")
             return self.result
 

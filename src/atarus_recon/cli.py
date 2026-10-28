@@ -1,10 +1,11 @@
 import os
 import click
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 from atarus_recon import __version__
 from atarus_recon.runner import ReconRunner
-from atarus_recon.scope import ActiveScope, tty_available
+from atarus_recon.scope import ActiveScope, safe_text, tty_available
 from atarus_recon.modules import crtsh, resolve, portscan, webprobe, screenshot, subfinder, whois_asn, waf_detect, cert_analysis, nuclei_scan, risk_score, credcheck
 from atarus_recon.reports import html, json_export, pdf, credcheck_csv
 
@@ -111,7 +112,7 @@ def main(target, output, out_format, rate_limit, verbose, skip, only, active, sc
     os.environ["ATARUS_OUTPUT_DIR"] = output
 
     console.print(BANNER, style="bold red")
-    console.print(f"[bold white]Target:[/] {target}")
+    console.print(f"[bold white]Target:[/] {escape(safe_text(target))}")
     console.print(f"[bold white]Output:[/] {output}")
     console.print(f"[bold white]Format:[/] {out_format}")
     console.print(f"[bold white]Rate limit:[/] {rate_limit} req/s")

@@ -8,12 +8,23 @@ from atarus_recon.scope import ScopeValidator
 from atarus_recon.runner import ModuleResult
 
 
+# How much of gowitness's stderr is kept for the not-run reason.
+STDERR_TAIL = 200
+
+# Whole-run limit, in seconds.
+GOWITNESS_TIMEOUT = 300
+
+
 def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: bool) -> ModuleResult:
     """Capture screenshots of web services using gowitness v3.
 
     Writes screenshots into <output_dir>/screenshots/ where output_dir is the
     directory containing the rest of the report files. Falls back to ./output
     only if no other location can be determined.
+
+    gowitness is run as an argument list and its exit code is checked: a
+    missing binary, a non-zero exit or a timeout is returned as the check not
+    having run, with the reason, never as zero screenshots.
     """
 
     web_hosts = [h for h in result.hosts if h.ip and h.status_code > 0]
@@ -66,21 +77,35 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         env = os.environ.copy()
         env["PATH"] = os.path.expanduser("~/go/bin") + ":" + env.get("PATH", "")
 
-        subprocess.run(
+        proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=GOWITNESS_TIMEOUT,
             env=env,
         )
 
-    except FileNotFoundError:
-        return ModuleResult(success=False, message="gowitness not found")
+    except OSError as e:
+        # FileNotFoundError when gowitness is not installed, PermissionError and the like.
+        return ModuleResult(
+            success=False,
+            message=f"gowitness could not be started ({type(e).__name__}); install gowitness and a Chromium browser",
+        )
     except subprocess.TimeoutExpired:
-        return ModuleResult(success=False, message="gowitness timed out")
+        return ModuleResult(
+            success=False,
+            message=f"gowitness timed out after {GOWITNESS_TIMEOUT} seconds; screenshots not captured",
+        )
     finally:
         if os.path.exists(url_file):
             os.remove(url_file)
+
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip().replace("\n", " ")[-STDERR_TAIL:]
+        return ModuleResult(
+            success=False,
+            message=f"gowitness exited with code {proc.returncode}; screenshots not captured. {tail}".strip(),
+        )
 
     captured = _match_screenshots_exact(web_hosts, screenshot_dir)
 

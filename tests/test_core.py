@@ -8,7 +8,7 @@ from unittest import mock
 
 from atarus_recon.models import ScanResult, Host, Port, Finding, BreachExposure
 from atarus_recon.scope import ScopeValidator
-from atarus_recon.modules import nuclei_scan, credcheck, risk_score, screenshot
+from atarus_recon.modules import nuclei_scan, credcheck, risk_score, screenshot, portscan
 from atarus_recon.reports import html, json_export
 
 
@@ -36,32 +36,180 @@ class ScopeTests(unittest.TestCase):
 
 
 class NucleiTests(unittest.TestCase):
-    def test_uses_nuclei_v3_flags_and_parses_jsonl(self):
+    """nuclei runs as an argument list and any failure is a check not made, never a clean result."""
+
+    RECORDS = [
+        {"template-id": "git-config", "host": "https://lab.test", "matched-at": "https://lab.test/.git/config",
+         "info": {"severity": "medium", "name": "Git Configuration", "description": "d"}},
+        {"template-id": "tech-detect", "host": "https://lab.test", "info": {"severity": "info"}},
+    ]
+
+    def _run(self, returncode=0, stderr="", records=None, side_effect=None, binary="/opt/bin/nuclei"):
         result = ScanResult(target="lab.test")
         result.add_host(Host(hostname="lab.test", ip="203.0.113.5", status_code=200))
-        records = [
-            {"template-id": "git-config", "host": "https://lab.test", "matched-at": "https://lab.test/.git/config",
-             "info": {"severity": "medium", "name": "Git Configuration", "description": "d"}},
-            {"template-id": "tech-detect", "host": "https://lab.test", "info": {"severity": "info"}},
-        ]
         seen = {}
 
-        def fake_run(cmd, shell, timeout, env):
+        def fake_run(cmd, **kwargs):
             seen["cmd"] = cmd
-            out = re.search(r"> (\S+) 2>/dev/null", cmd).group(1)
+            seen["kwargs"] = kwargs
+            if side_effect is not None:
+                raise side_effect
+            out = cmd[cmd.index("-o") + 1]
             with open(out, "w") as f:
-                f.write("\n".join(json.dumps(r) for r in records))
+                f.write("\n".join(json.dumps(r) for r in (records or [])))
+            return mock.Mock(returncode=returncode, stdout="", stderr=stderr)
 
-        with mock.patch.object(nuclei_scan.subprocess, "run", side_effect=fake_run):
+        with mock.patch.object(nuclei_scan, "_find_nuclei", return_value=binary), \
+             mock.patch.object(nuclei_scan.subprocess, "run", side_effect=fake_run):
             res = nuclei_scan.run(result, ScopeValidator("lab.test"), 10, False)
+        return res, result, seen
 
-        self.assertIn("-jsonl", seen["cmd"].split())
-        self.assertIn("-disable-update-check", seen["cmd"].split())
-        self.assertNotIn("-json", seen["cmd"].split())
-        self.assertNotIn("-no-update-templates", seen["cmd"].split())
-        self.assertTrue(res.success)
+    def test_runs_as_an_argument_list_with_the_v3_flags_and_parses_jsonl(self):
+        res, result, seen = self._run(records=self.RECORDS)
+        cmd = seen["cmd"]
+        self.assertIsInstance(cmd, list, "nuclei must be run as an argv list, never a shell string")
+        self.assertEqual(cmd[0], "/opt/bin/nuclei")
+        self.assertNotIn("shell", seen["kwargs"])
+        self.assertTrue(seen["kwargs"].get("capture_output"), "stderr must be captured, not discarded")
+        for flag in ("-jsonl", "-disable-update-check", "-ni", "-disable-redirects", "-o", "-l"):
+            self.assertIn(flag, cmd)
+        for gone in ("-json", "-no-update-templates"):
+            self.assertNotIn(gone, cmd)
+        self.assertTrue(res.success, res.message)
         self.assertEqual(len(result.findings), 1)
         self.assertEqual(result.hosts[0].findings[0].template_id, "git-config")
+
+    def test_non_zero_exit_is_not_run_with_the_stderr_tail(self):
+        res, result, _ = self._run(returncode=1, stderr="[FTL] Could not run nuclei: no templates provided")
+        self.assertFalse(res.success)
+        self.assertIn("exited with code 1", res.message)
+        self.assertIn("not completed", res.message)
+        self.assertIn("no templates provided", res.message)
+        self.assertNotIn("No vulnerabilities", res.message)
+        self.assertEqual(result.findings, [])
+
+    def test_missing_binary_is_not_run(self):
+        res, _, seen = self._run(binary="")
+        self.assertFalse(res.success)
+        self.assertIn("nuclei not found", res.message)
+        self.assertNotIn("cmd", seen, "nothing is executed when nuclei is absent")
+
+        res, _, _ = self._run(side_effect=FileNotFoundError("nuclei"))
+        self.assertFalse(res.success)
+        self.assertIn("could not be started", res.message)
+
+    def test_timeout_is_not_run(self):
+        res, _, _ = self._run(side_effect=nuclei_scan.subprocess.TimeoutExpired(cmd="nuclei", timeout=600))
+        self.assertFalse(res.success)
+        self.assertIn("timed out", res.message)
+        self.assertIn("not completed", res.message)
+
+    def test_empty_output_is_not_run_rather_than_clean(self):
+        res, result, _ = self._run(returncode=0, records=[])
+        self.assertFalse(res.success, "an empty output file must not read as a clean scan")
+        self.assertIn("not run", res.message)
+        self.assertIn("no output", res.message)
+        self.assertNotIn("No vulnerabilities", res.message)
+        self.assertEqual(result.findings, [])
+
+
+class NmapTests(unittest.TestCase):
+    """nmap's exit code is checked; a failure is a check not made, never zero open ports."""
+
+    NMAP_XML = (
+        '<?xml version="1.0"?><nmaprun><host><address addr="11.22.33.44"/><ports>'
+        '<port protocol="tcp" portid="443"><state state="open"/><service name="https" product="nginx" version="1.2"/></port>'
+        '</ports></host></nmaprun>'
+    )
+
+    def _run(self, returncode=0, stderr="", side_effect=None, xml=None):
+        # 203.0.113.0/24 is documentation space, which ipaddress treats as
+        # private and the module refuses to scan; nothing is sent here anyway,
+        # subprocess.run is replaced.
+        result = ScanResult(target="lab.test")
+        result.add_host(Host(hostname="lab.test", ip="11.22.33.44"))
+        seen = {}
+
+        def fake_run(cmd, **kwargs):
+            seen["cmd"] = cmd
+            if side_effect is not None:
+                raise side_effect
+            with open(cmd[cmd.index("-oX") + 1], "w") as f:
+                f.write(xml if xml is not None else self.NMAP_XML)
+            return mock.Mock(returncode=returncode, stdout="", stderr=stderr)
+
+        with mock.patch.object(portscan.subprocess, "run", side_effect=fake_run):
+            res = portscan.run(result, ScopeValidator("lab.test"), 10, False)
+        return res, result, seen
+
+    def test_clean_exit_parses_ports(self):
+        res, result, seen = self._run()
+        self.assertIsInstance(seen["cmd"], list)
+        self.assertTrue(res.success, res.message)
+        self.assertEqual([p.number for p in result.hosts[0].ports], [443])
+
+    def test_non_zero_exit_is_not_run(self):
+        res, result, _ = self._run(returncode=1, stderr="nmap: unable to open socket", xml="")
+        self.assertFalse(res.success)
+        self.assertIn("exited with code 1", res.message)
+        self.assertIn("11.22.33.44", res.message)
+        self.assertIn("unknown", res.message)
+        self.assertIn("unable to open socket", res.message)
+        self.assertEqual(result.hosts[0].ports, [])
+
+    def test_missing_binary_is_not_run(self):
+        res, _, _ = self._run(side_effect=FileNotFoundError("nmap"))
+        self.assertFalse(res.success)
+        self.assertIn("nmap could not be started", res.message)
+
+    def test_timeout_is_not_run(self):
+        res, _, _ = self._run(side_effect=portscan.subprocess.TimeoutExpired(cmd="nmap", timeout=300))
+        self.assertFalse(res.success)
+        self.assertIn("timed out", res.message)
+
+
+class GowitnessTests(unittest.TestCase):
+    """gowitness's exit code is checked; a failure is a check not made, never zero screenshots."""
+
+    def _run(self, returncode=0, stderr="", side_effect=None):
+        result = ScanResult(target="lab.test")
+        result.add_host(Host(hostname="lab.test", ip="203.0.113.5", status_code=200))
+        seen = {}
+
+        def fake_run(cmd, **kwargs):
+            seen["cmd"] = cmd
+            if side_effect is not None:
+                raise side_effect
+            return mock.Mock(returncode=returncode, stdout="", stderr=stderr)
+
+        with tempfile.TemporaryDirectory() as d, \
+             mock.patch.dict(os.environ, {"ATARUS_OUTPUT_DIR": d}), \
+             mock.patch.object(screenshot.subprocess, "run", side_effect=fake_run):
+            res = screenshot.run(result, ScopeValidator("lab.test"), 10, False)
+        return res, seen
+
+    def test_clean_exit_counts_captures(self):
+        res, seen = self._run()
+        self.assertIsInstance(seen["cmd"], list)
+        self.assertTrue(res.success, res.message)
+        self.assertIn("Captured 0 screenshots", res.message)
+
+    def test_non_zero_exit_is_not_run(self):
+        res, _ = self._run(returncode=2, stderr="could not find chrome")
+        self.assertFalse(res.success)
+        self.assertIn("exited with code 2", res.message)
+        self.assertIn("not captured", res.message)
+        self.assertIn("could not find chrome", res.message)
+
+    def test_missing_binary_is_not_run(self):
+        res, _ = self._run(side_effect=FileNotFoundError("gowitness"))
+        self.assertFalse(res.success)
+        self.assertIn("gowitness could not be started", res.message)
+
+    def test_timeout_is_not_run(self):
+        res, _ = self._run(side_effect=screenshot.subprocess.TimeoutExpired(cmd="gowitness", timeout=300))
+        self.assertFalse(res.success)
+        self.assertIn("timed out", res.message)
 
 
 class CredcheckTests(unittest.TestCase):

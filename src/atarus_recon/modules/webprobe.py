@@ -9,8 +9,20 @@ from atarus_recon.scope import ScopeValidator
 from atarus_recon.runner import ModuleResult
 
 
+# How much of httpx's stderr is kept for the not-run reason.
+STDERR_TAIL = 200
+
+# Whole-run limit, in seconds.
+HTTPX_TIMEOUT = 180
+
+
 def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: bool) -> ModuleResult:
-    """Probe alive hosts with ProjectDiscovery httpx for web service details"""
+    """Probe alive hosts with ProjectDiscovery httpx for web service details.
+
+    httpx is run as an argument list, never through a shell, and its exit code
+    is checked: a missing binary, a non-zero exit, a timeout or no output is
+    returned as the check not having run, with the reason.
+    """
     alive_hosts = [h for h in result.hosts if h.ip]
     if not alive_hosts:
         return ModuleResult(success=False, message="No alive hosts to probe")
@@ -34,21 +46,37 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
             for h in alive_hosts:
                 f.write(h.hostname + "\n")
 
-        shell_cmd = (
-            f"cat {host_file} | {httpx_path} "
-            f"-status-code -title -tech-detect -follow-redirects "
-            f"-silent -json -rate-limit {rate_limit} "
-            f"-timeout 10 "
-            f"> {output_file} 2>/dev/null"
-        )
+        cmd = [
+            httpx_path,
+            "-l", host_file,
+            "-status-code", "-title", "-tech-detect", "-follow-redirects",
+            "-silent", "-json",
+            "-o", output_file,
+            "-no-color",
+            "-rate-limit", str(rate_limit),
+            "-timeout", "10",
+        ]
 
         env = os.environ.copy()
         env["PATH"] = env.get("PATH", "") + ":" + os.path.expanduser("~/go/bin")
 
-        subprocess.run(shell_cmd, shell=True, timeout=180, env=env)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=HTTPX_TIMEOUT, env=env)
+        except OSError as e:
+            return ModuleResult(success=False, message=f"httpx could not be started: {type(e).__name__}")
+
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "").strip().replace("\n", " ")[-STDERR_TAIL:]
+            return ModuleResult(
+                success=False,
+                message=f"httpx exited with code {proc.returncode}; web services not probed. {tail}".strip(),
+            )
 
         if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
-            return ModuleResult(success=False, message="httpx produced no output")
+            return ModuleResult(
+                success=False,
+                message=f"httpx produced no output; web services on {len(alive_hosts)} hosts not probed",
+            )
 
         with open(output_file, "r") as f:
             output_lines = f.read().strip().split("\n")
@@ -57,7 +85,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
             print(f"  httpx results: {len(output_lines)} lines")
 
     except subprocess.TimeoutExpired:
-        return ModuleResult(success=False, message="httpx timed out")
+        return ModuleResult(success=False, message=f"httpx timed out after {HTTPX_TIMEOUT} seconds; web services not probed")
     finally:
         for path in [host_file, output_file]:
             if os.path.exists(path):
