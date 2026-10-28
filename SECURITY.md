@@ -24,4 +24,6 @@ Out of scope: third-party tools this project calls or downloads (for example nma
 
 ## Using this tool
 
-atarus-recon performs active scanning (nmap, httpx, nuclei). Only run it against domains you own or are authorized in writing to test.
+atarus-recon is passive by default: a plain run asks public sources and sends nothing to the target's own hosts. Active scanning (nmap, httpx, the WAF and certificate checks, nuclei, gowitness) runs only with `--active`, against hosts inside a `--scope` you provide, after you type `yes` on the terminal (or pass `--yes` together with `--scope` for scripted runs). Only use `--active` against hosts you own or are authorized in writing to test.
+
+Treat as a security bug and report it: any run that sends traffic to the target without `--active`, any active module reaching a host outside `--scope`, any way to pass the confirmation gate other than typing `yes` on the terminal or the documented `--yes` flag, a report that reads as clean for a check that did not run, and any network destination not listed in the README's network table.

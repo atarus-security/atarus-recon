@@ -313,9 +313,30 @@
         <tr><td>Target</td><td>{{ result.target }}</td></tr>
         <tr><td>Started</td><td>{{ result.started_at }}</td></tr>
         <tr><td>Completed</td><td>{{ result.finished_at }}</td></tr>
-        <tr><td>Tool</td><td>atarus-recon v0.5.0</td></tr>
+        <tr><td>Mode</td><td>{{ result.mode }}{% if result.mode == 'passive' %} (no packets were sent to the target's hosts){% endif %}</td></tr>
+        {% if result.active_scope %}<tr><td>Active scope</td><td>{{ result.active_scope | join(', ') }}</td></tr>{% endif %}
+        {% if result.confirmation %}<tr><td>Confirmation</td><td>{{ result.confirmation }}</td></tr>{% endif %}
+        <tr><td>Tool</td><td>atarus-recon v{{ version }}</td></tr>
       </table>
     </div>
+
+    {% if result.modules_not_run %}
+    <div class="section-title">Modules not run</div>
+    <div class="infra-card">
+      <table class="infra-table">
+        {% for m in result.modules_not_run %}<tr><td>{{ m.name }}</td><td>{{ m.reason }}</td></tr>{% endfor %}
+      </table>
+    </div>
+    {% endif %}
+
+    {% if result.out_of_scope %}
+    <div class="section-title">Out of scope, not probed</div>
+    <div class="infra-card">
+      <table class="infra-table">
+        {% for h in result.out_of_scope %}<tr><td>{{ h.hostname }}</td><td>{{ h.ip }}</td></tr>{% endfor %}
+      </table>
+    </div>
+    {% endif %}
 
     {% set high_risk = result.hosts | selectattr('risk_score') | list | sort(attribute='risk_score', reverse=True) %}
     {% if high_risk %}
@@ -554,7 +575,12 @@
     {% endif %}
 
     {% else %}
-    <div class="no-data">No vulnerabilities detected. Consider running with nuclei enabled.</div>
+    {% set nuclei_not_run = result.modules_not_run | selectattr('module', 'equalto', 'nuclei') | list %}
+    {% if nuclei_not_run %}
+    <div class="no-data">Nuclei was not run ({{ nuclei_not_run[0].reason }}), so no vulnerability check was made.</div>
+    {% else %}
+    <div class="no-data">No vulnerabilities detected by nuclei.</div>
+    {% endif %}
     {% endif %}
   </div>
 

@@ -4,6 +4,8 @@ External attack surface reconnaissance tool by [Atarus Offensive Security](https
 
 Single command. Twelve modules. Every external recon step a pentester runs at the start of an engagement, chained into one branded report.
 
+Passive by default. A plain run only asks public sources (certificate transparency, subfinder's passive sources, DNS, whois, HaveIBeenPwned) and sends nothing to the target's own hosts. The six modules that do send packets to the target (port scan, web probe, WAF check, certificate grab, nuclei, screenshots) run only behind `--active`, only against hosts inside a `--scope` you provide, and only after you type `yes` on the terminal. See [Passive by default, active on request](#passive-by-default-active-on-request).
+
 ## Quick start
 
 ```bash
@@ -23,8 +25,13 @@ pip install -e .
 echo 'export PATH="$PATH:$HOME/go/bin"' >> ~/.bashrc
 source ~/.bashrc
 
-# Run a scan
-atarus-recon -t example.com --format all
+# Passive run (default): public sources only, nothing sent to example.com's hosts
+atarus-recon -t example.com
+
+# Active run: port scan, web probe, nuclei and screenshots against the hosts you
+# place in scope. Prints the scope and the hosts to be probed, then waits for
+# you to type yes on the terminal.
+atarus-recon -t example.com --active --scope 'example.com,*.example.com'
 ```
 
 The `install-deps.sh` script downloads prebuilt binaries directly from GitHub releases. No Go toolchain required. Works on Kali, Debian, Ubuntu, Arch, and Fedora.
@@ -37,32 +44,34 @@ nuclei v3 is required (the module uses the v3 `-jsonl` and `-disable-update-chec
 
 If you prefer to install dependencies manually, see the per-module reference section below.
 
-That single command produces:
+A run produces:
 
-- `atarus-recon-example.com.html` - tabbed report with risk overview, credential exposure, per-host findings
+- `atarus-recon-example.com.html` - tabbed report with risk overview, credential exposure, per-host findings, the run mode, and every module that did not run with the reason
 - `atarus-recon-example.com.pdf` - branded PDF export
-- `atarus-recon-example.com.json` - machine-readable output
-- `screenshots/` - PNG of every alive web service
+- `atarus-recon-example.com.json` - machine-readable output, including `mode`, `active_scope`, `confirmation`, `modules_not_run` and `out_of_scope`
+- `screenshots/` - PNG of every alive web service (active runs only)
 - `credcheck-breaches-example.com.csv` and `credcheck-remediation-example.com.csv` if any breach exposure is found
+
+A passive report has no open ports, web fingerprints, certificate data, nuclei findings or screenshots. It says so: the report lists the six active modules as not run rather than showing an empty, clean-looking section.
 
 ## Modules
 
-| Key | Description | External tool required |
-|---|---|---|
-| crtsh | Certificate transparency subdomain enumeration | None |
-| subfinder | Passive subdomain enumeration | subfinder |
-| resolve | DNS resolution and alive filtering | None |
-| whois | WHOIS lookup | None (uses the system `whois` command when present) |
-| portscan | TCP port scan with service detection | nmap |
-| webprobe | Web service fingerprinting | httpx (projectdiscovery) |
-| waf | WAF and CDN protection detection | None |
-| cert | TLS certificate inspection | None |
-| nuclei | Templated vulnerability scanning | nuclei |
-| screenshot | Visual capture of alive web services | gowitness |
-| credcheck | Credential exposure via HaveIBeenPwned | None |
-| risk | Per-host risk scoring | None |
+| Key | Mode | Description | External tool required |
+|---|---|---|---|
+| crtsh | passive | Certificate transparency subdomain enumeration | None |
+| subfinder | passive | Passive subdomain enumeration | subfinder |
+| resolve | passive | DNS resolution and alive filtering | None |
+| whois | passive | WHOIS lookup | None (uses the system `whois` command when present) |
+| portscan | active | TCP port scan with service detection | nmap |
+| webprobe | active | Web service fingerprinting | httpx (projectdiscovery) |
+| waf | active | WAF and CDN protection detection | None |
+| cert | active | TLS certificate inspection | None |
+| nuclei | active | Templated vulnerability scanning | nuclei |
+| screenshot | active | Visual capture of alive web services | gowitness |
+| credcheck | passive | Credential exposure via HaveIBeenPwned | None |
+| risk | passive | Per-host risk scoring | None |
 
-Every module is independently toggleable via `--skip` or `--only`. The pipeline order is fixed (recon -> enrichment -> analysis) so dependent modules always have the data they need.
+Every module is independently toggleable via `--skip` or `--only`. The pipeline order is fixed (recon -> enrichment -> analysis) so dependent modules always have the data they need. Active modules additionally need `--active` and `--scope`; `--only portscan` without them is an error, not a silent scan. `atarus-recon --list-modules` shows the mode of each module.
 
 ## Module reference
 
@@ -130,7 +139,9 @@ Pulls WHOIS data for the root domain.
 
 ### portscan
 
-Runs nmap against every alive host. Default scope is the top 100 TCP ports with service version detection (`-sV --top-ports 100`).
+**Active module.** Runs only with `--active`, against hosts inside `--scope`, after the terminal confirmation.
+
+Runs nmap against every in-scope alive host. Default scope is the top 100 TCP ports with service version detection (`-sV --top-ports 100`).
 
 **Output added to scan**: `Host.ports` list of `Port` objects with number, protocol, state, service name, version, banner
 
@@ -140,7 +151,7 @@ sudo apt install nmap
 ```
 
 **Notes for pentesters**:
-- This module IS noisy. Nmap with version detection probes every port. If your engagement requires stealth, skip this module with `--skip portscan`.
+- This module IS noisy. Nmap with version detection probes every port. If your engagement requires stealth, leave `--active` off or skip this module with `--skip portscan`.
 - Service detection accuracy depends on nmap version and signature database. Run `sudo nmap --script-updatedb` to refresh.
 - Banner grabbing is on by default. Sensitive services like SMB and RDP get probed. Be sure your scope authorizes this.
 - nmap's `--max-rate` is set to ten times `--rate-limit`, so the default of 10 gives 100 packets per second.
@@ -149,6 +160,8 @@ sudo apt install nmap
 ---
 
 ### webprobe
+
+**Active module.** Runs only with `--active`, against hosts inside `--scope`, after the terminal confirmation.
 
 Wraps [httpx](https://github.com/projectdiscovery/httpx) to identify alive web services. Pulls HTTP status code, page title, technology stack via Wappalyzer signatures, and CDN indicators.
 
@@ -168,12 +181,14 @@ go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
 
 ### waf
 
-Inspects HTTP responses for headers and behaviors that indicate a Web Application Firewall or CDN protection layer.
+**Active module.** Runs only with `--active`, against hosts inside `--scope`, after the terminal confirmation.
+
+Sends one HTTPS HEAD request to `/` on every in-scope web host (then HTTP if HTTPS fails) and inspects the response headers for signatures of a Web Application Firewall or CDN protection layer.
 
 **Output added to scan**: `Host.waf` populated with detected protection name (Cloudflare, Akamai, AWS WAF, F5, Imperva, etc)
 
 **Notes for pentesters**:
-- Detection is passive. No probing or rule fingerprinting. Just header inspection.
+- One HEAD request per host, no rule fingerprinting or attack payloads. Header inspection only, but it is a request to the target, so it is an active module.
 - A detected WAF does NOT mean exploitation is impossible. It means your nuclei results need to be validated manually because some templates trigger WAF blocks before reaching the actual app.
 - CDN identification often overlaps with WAF detection (Cloudflare runs both).
 
@@ -183,7 +198,9 @@ Inspects HTTP responses for headers and behaviors that indicate a Web Applicatio
 
 ### cert
 
-Pulls and analyzes TLS certificates from every web service identified by webprobe. Extracts issuer, subject, validity period, SANs, and signature algorithm.
+**Active module.** Runs only with `--active`, against hosts inside `--scope`, after the terminal confirmation.
+
+Opens a TLS connection to port 443 on every in-scope web host and analyzes the certificate from every web service identified by webprobe. Extracts issuer, subject, validity period, SANs, and signature algorithm.
 
 **Output added to scan**: `Host.cert_data` dict per host
 
@@ -197,6 +214,8 @@ Pulls and analyzes TLS certificates from every web service identified by webprob
 ---
 
 ### nuclei
+
+**Active module.** Runs only with `--active`, against hosts inside `--scope`, after the terminal confirmation.
 
 Runs the [nuclei](https://github.com/projectdiscovery/nuclei) scanner with default templates against every web service. Produces per-host findings.
 
@@ -212,12 +231,14 @@ nuclei -update-templates
 - Nuclei is loud. WAFs will see this. Plan accordingly.
 - The default template set includes thousands of checks. Expect false positives on heavily customized sites.
 - Severity levels from nuclei (info/low/medium/high/critical) flow directly into the report.
-- This is the slowest module in the pipeline. Use `--skip nuclei` for fast scans.
+- This is the slowest module in the pipeline. Use `--skip nuclei` for fast active scans.
 - Run `nuclei -update-templates` periodically. The default template set updates frequently.
 
 ---
 
 ### screenshot
+
+**Active module.** Runs only with `--active`, against hosts inside `--scope`, after the terminal confirmation.
 
 Captures full-page screenshots of every alive web service using [gowitness](https://github.com/sensepost/gowitness).
 
@@ -288,23 +309,30 @@ Aggregates module outputs into a per-host risk score. Considers open ports, expo
 ### Common patterns
 
 ```bash
-# Default: full scan, all report formats (HTML, PDF, JSON, CSVs)
+# Default: passive run, all report formats (HTML, PDF, JSON, CSVs). Nothing is
+# sent to example.com's hosts.
 atarus-recon -t example.com
 
-# All output formats (HTML, PDF, JSON, CSVs)
-atarus-recon -t example.com --format all
+# Active run against the apex and every subdomain. You are shown the scope,
+# the active modules and each host with its resolved IP, then type yes.
+atarus-recon -t example.com --active --scope 'example.com,*.example.com'
 
-# Quick scan: skip slow or noisy modules
-atarus-recon -t example.com --skip nuclei,screenshot,portscan
+# Active run limited to the client's address ranges; names that resolve
+# elsewhere (CDN, SaaS front ends) are reported as out of scope and skipped
+atarus-recon -t example.com --active --scope ./engagements/acme/scope.txt
+
+# Non-interactive active run (CI, cron): --yes stands in for the typed word,
+# is only accepted together with --scope, and is recorded in the report
+atarus-recon -t example.com --active --scope ./scope.txt --yes
+
+# Quick active scan: skip the slow modules
+atarus-recon -t example.com --active --scope ./scope.txt --skip nuclei,screenshot
 
 # Targeted: only credential exposure check
 atarus-recon -t example.com --only credcheck --format all
 
 # Targeted: subdomain discovery only
 atarus-recon -t example.com --only crtsh,subfinder,resolve
-
-# Stealth mode: passive only, no active scanning
-atarus-recon -t example.com --skip portscan,nuclei,webprobe,screenshot
 
 # Custom output directory
 atarus-recon -t example.com -o ./engagements/acme/recon
@@ -329,11 +357,60 @@ atarus-recon -t example.com --rate-limit 5
 atarus-recon -t example.com --rate-limit 50
 ```
 
-### Scope enforcement
+## Passive by default, active on request
 
-The tool enforces scope to the target domain and its subdomains. Hosts outside `*.example.com` discovered during recon are filtered out before any active probing. This prevents accidental out-of-scope scanning.
+atarus-recon follows one rule: it observes and reports by default, and it probes a live system only when you placed that system in scope and confirmed it yourself.
 
-If you need to scan multiple unrelated domains, run the tool once per target.
+### Passive mode (default)
+
+Without `--active`, only the passive modules run: `crtsh`, `subfinder`, `resolve`, `whois`, `credcheck` and `risk`. They ask public sources about the target; none of them sends a packet to the target's own hosts. The six active modules are listed in the terminal and in the report as "not run", with the reason, so a passive report never reads as a clean active scan.
+
+### Active mode
+
+`--active` enables `portscan`, `webprobe`, `waf`, `cert`, `nuclei` and `screenshot`. It needs two more things:
+
+1. **A scope lock.** `--scope` takes a file (one entry per line, `#` comments allowed) or a comma-separated list. Four entry forms:
+
+   | Entry | Covers |
+   |---|---|
+   | `app.example.com` | exactly that host |
+   | `*.example.com` | every name under `example.com`, at any depth, but not the apex |
+   | `203.0.113.7` | that address |
+   | `203.0.113.0/24` | every address in that network |
+
+   A discovered host is probed only if its name matches a host or domain entry, or its resolved address falls inside a network entry. Everything else is listed as out of scope, in the terminal, the HTML report and the JSON (`out_of_scope`), and is never handed to an active module. Discovery (crt.sh, subfinder) is still limited to the target domain and its subdomains, as before.
+
+2. **A confirmation the software cannot give for you.** Before the first packet to the target, after the passive modules have resolved the hosts, the tool prints the exact scope, the list of active modules, and every host that will be probed with its resolved IP, then waits for you to type the word `yes` on the controlling terminal (`/dev/tty`). Anything else, end of file, or no terminal at all means the active modules do not run; the passive results and the report are still written.
+
+   For non-interactive runs, `--yes` stands in for the typed word. It is accepted only together with `--scope`, it is printed at the start of the run, and it is recorded in the report (`confirmation`). No environment variable and no configuration file can stand in for the confirmation: the tool reads neither for these options. An automation or AI agent driving the CLI can pass flags, but it cannot answer `/dev/tty`, which is the point.
+
+   `--active` without `--scope`, `--yes` without `--scope`, `--only` naming an active module without `--active`, and `--active` with neither a terminal nor `--yes` all stop with a usage error before anything runs.
+
+If you need to scan multiple unrelated domains, run the tool once per target, each with its own scope.
+
+### What this tool sends over the network
+
+| Module | Mode | Destination | What is sent | When |
+|---|---|---|---|---|
+| crtsh | passive | crt.sh over HTTPS | one GET with the target domain in the query | every run |
+| subfinder | passive | the passive sources subfinder is configured for (third parties, not the target) | the target domain, once per source | when subfinder is installed |
+| resolve | passive | your system's DNS resolver | an A query per discovered name. The recursive resolver may in turn ask the target's authoritative name servers; atarus-recon itself sends nothing to the target | every run |
+| whois | passive | the registry's whois server, via the system `whois` command or python-whois | the target domain | every run |
+| credcheck | passive | haveibeenpwned.com over HTTPS | one GET with the target domain | every run |
+| risk | passive | nothing | nothing, computed offline | every run |
+| portscan | active | every in-scope resolved public IP | nmap TCP connect scan of the top 100 ports with version probes (`-sT -sV`), up to ten times `--rate-limit` packets per second | `--active` only, after confirmation |
+| webprobe | active | every in-scope alive host, HTTP and HTTPS | httpx GET requests, following redirects | `--active` only, after confirmation |
+| waf | active | every in-scope web host | one HTTPS HEAD request to `/`, then HTTP if that fails | `--active` only, after confirmation |
+| cert | active | every in-scope web host, port 443 | one TLS handshake | `--active` only, after confirmation |
+| nuclei | active | every in-scope web host | nuclei templates at low severity and above: many HTTP requests per host | `--active` only, after confirmation |
+| screenshot | active | every in-scope web host | headless browser page loads through gowitness, following navigations | `--active` only, after confirmation |
+
+The target domain is disclosed to the passive third parties (crt.sh, subfinder's sources, whois, HaveIBeenPwned). Skip a module with `--skip` if an engagement forbids that.
+
+### Known issues
+
+- Redirects: httpx (`-follow-redirects`) and gowitness follow redirects wherever they point, so an in-scope host that redirects off-domain still causes a request to the redirect target. Off-scope redirect blocking is planned.
+- The scope check is by name or by resolved IP; it does not yet show the owner of each IP (CNAME target, ASN) at the confirmation prompt. Check the printed IPs against your authorization before typing yes.
 
 ## Reports
 
@@ -373,13 +450,15 @@ from atarus_recon.modules import yourmodule
 
 MODULE_REGISTRY = [
     # ... existing modules ...
-    ("My new module", "yourmodule", yourmodule.run),
+    # (name, key, function, active). active=True if the module sends anything
+    # to the target's own hosts; it then runs only behind --active and --scope.
+    ("My new module", "yourmodule", yourmodule.run, True),
 ]
 ```
 
 Reinstall with `pip install -e .` and your module is now available via `--only yourmodule`.
 
-The module receives the running `ScanResult`, a `ScopeValidator` for safety checks, the rate limit setting, and a verbose flag. Mutate `result` to add findings, hosts, or custom data.
+The module receives the running `ScanResult`, a `ScopeValidator` for safety checks, the rate limit setting, and a verbose flag. Mutate `result` to add findings, hosts, or custom data. An active module is only ever handed the hosts inside `--scope`: the runner swaps `result.hosts` for the in-scope subset while the module runs, so you do not need to check scope yourself, and you must not cache or replace `result.hosts`. Add a row to the network table above for any new module.
 
 ## Try it
 
@@ -389,10 +468,16 @@ Quick credcheck-only test against a domain with known breach exposure:
 atarus-recon -t adobe.com --only credcheck --format all -v
 ```
 
-Full scan against your own domain (always safe):
+Passive run against your own domain:
 
 ```bash
 atarus-recon -t yourcompany.com --format all -v
+```
+
+Active run against your own domain, once you have confirmed the resolved IPs are yours:
+
+```bash
+atarus-recon -t yourcompany.com --active --scope 'yourcompany.com,*.yourcompany.com' -v
 ```
 
 ## Part of the atarus- tool suite
@@ -413,7 +498,7 @@ The tests are offline and use only the standard library. GitHub Actions runs the
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) to report a vulnerability. Only scan domains you own or are authorized in writing to test.
+See [SECURITY.md](SECURITY.md) to report a vulnerability. The default run is passive. Only use `--active` against hosts you own or are authorized in writing to test, and put exactly those hosts in `--scope`.
 
 ## License
 

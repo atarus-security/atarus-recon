@@ -8,6 +8,7 @@ import socket
 import ssl
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
+from atarus_recon import __version__
 
 from atarus_recon.models import ScanResult
 from atarus_recon.scope import ScopeValidator
@@ -88,7 +89,7 @@ def _fetch_headers(url: str) -> str:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
 
-        req = Request(url, method="HEAD", headers={"User-Agent": "atarus-recon/0.5.0"})
+        req = Request(url, method="HEAD", headers={"User-Agent": f"atarus-recon/{__version__}"})
         with urlopen(req, timeout=PROBE_TIMEOUT, context=ctx) as resp:
             return _format_headers(dict(resp.headers))
     except HTTPError as e:
