@@ -196,13 +196,25 @@ class ActiveScope:
         return ", ".join(self.entries)
 
 
+def _open_tty() -> int:
+    """A raw read-write descriptor on the controlling terminal.
+
+    Opened with os.open rather than open(path, "r+"): the latter builds a
+    BufferedRandom, which demands a seekable stream, and a terminal is not
+    one, so it raises io.UnsupportedOperation (an OSError) on every real
+    terminal and the gate would never open.
+    """
+    return os.open(TTY_PATH, os.O_RDWR | getattr(os, "O_NOCTTY", 0))
+
+
 def tty_available() -> bool:
     """True when a controlling terminal can be opened for the confirmation prompt."""
     try:
-        with open(TTY_PATH, "r+"):
-            return True
+        fd = _open_tty()
     except OSError:
         return False
+    os.close(fd)
+    return True
 
 
 def read_tty_line(prompt: str):
@@ -213,13 +225,18 @@ def read_tty_line(prompt: str):
     environment variable or configuration file is consulted.
     """
     try:
-        tty = open(TTY_PATH, "r+", buffering=1)
+        fd = _open_tty()
     except OSError:
         return None
-    with tty:
-        tty.write(prompt)
-        tty.flush()
-        line = tty.readline()
+    try:
+        if prompt:
+            os.write(fd, prompt.encode("utf-8", "replace"))
+        with open(fd, "r", encoding="utf-8", errors="replace", closefd=False) as reader:
+            line = reader.readline()
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
     if not line:
         return None
     return line.strip()
