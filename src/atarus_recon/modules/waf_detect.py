@@ -1,13 +1,18 @@
 """WAF and CDN detection via active header probing.
 
-Sends a single HTTPS HEAD request per host and inspects response headers
-for known WAF/CDN signatures. Falls back to webprobe-collected CDN data
-if direct probing fails.
+Sends a single HEAD request per host, over HTTPS and then over HTTP if that
+gets no answer, and inspects the response headers for known WAF/CDN
+signatures. Falls back to webprobe-collected CDN data if direct probing
+finds nothing.
+
+The request goes to the address the scope check approved (host.ip), with
+the host name only in SNI and the Host header, so the name is not resolved
+again. Redirects are never followed: a 3xx answer is read for its headers
+and nothing more is sent.
 """
+import http.client
 import socket
 import ssl
-from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
 from atarus_recon import __version__
 
 from atarus_recon.models import ScanResult
@@ -40,15 +45,19 @@ PROBE_TIMEOUT = 6
 def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: bool) -> ModuleResult:
     """Detect WAF/CDN presence via active probing of response headers"""
 
-    web_hosts = [h for h in result.hosts if h.status_code > 0]
+    web_hosts = [h for h in result.hosts if h.ip and h.status_code > 0]
 
     if not web_hosts:
         return ModuleResult(success=False, message="No web hosts to check")
 
     detected = 0
+    unanswered = 0
 
     for host in web_hosts:
-        waf_name = _probe_for_waf(host.hostname, verbose)
+        answered, waf_name = _probe_for_waf(host.hostname, host.ip, verbose)
+        if not answered:
+            unanswered += 1
+        host.waf_checked = answered
 
         if not waf_name:
             waf_name = _check_cdn_metadata(host)
@@ -59,53 +68,82 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         else:
             host.waf = ""
 
-    return ModuleResult(success=True, message=f"Detected WAF/protection on {detected} hosts")
+    if unanswered == len(web_hosts):
+        return ModuleResult(
+            success=False,
+            message=f"none of the {len(web_hosts)} web hosts answered the HEAD request; WAF presence unknown",
+        )
+
+    msg = f"Detected WAF/protection on {detected} hosts"
+    if unanswered:
+        msg += f"; {unanswered} hosts did not answer the HEAD request, so their WAF status is unknown"
+    return ModuleResult(success=True, message=msg)
 
 
-def _probe_for_waf(hostname: str, verbose: bool) -> str:
-    """Send HEAD request to https://hostname/ and inspect response headers."""
-    headers_text = _fetch_headers(f"https://{hostname}/")
+def _probe_for_waf(hostname: str, ip: str, verbose: bool) -> tuple:
+    """HEAD / over HTTPS, then HTTP. Returns (answered, waf_name)."""
+    answered, headers_text = _fetch_headers("https", hostname, ip)
 
-    if not headers_text:
-        headers_text = _fetch_headers(f"http://{hostname}/")
+    if not answered:
+        answered, headers_text = _fetch_headers("http", hostname, ip)
 
-    if not headers_text:
-        return ""
+    if not answered:
+        return False, ""
 
     headers_lower = headers_text.lower()
 
     for waf_name, signatures in WAF_HEADER_SIGNATURES.items():
         for sig in signatures:
             if sig.lower() in headers_lower:
-                return waf_name
+                return True, waf_name
 
-    return ""
+    return True, ""
 
 
-def _fetch_headers(url: str) -> str:
-    """Send a HEAD request and return concatenated header text. Returns empty on failure."""
+def _fetch_headers(scheme: str, hostname: str, ip: str, port: int = None) -> tuple:
+    """Send one HEAD / to ip. Returns (answered, headers_text).
+
+    answered is True when a valid HTTP response came back, even one with no
+    headers at all; headers_text is then the headers as text, possibly "".
+    (False, "") means no answer: refused, timed out, TLS failure or a reply
+    that is not HTTP. The connection goes to ip, never to a fresh lookup of
+    hostname, and the response is read once: http.client does not follow
+    redirects.
+    """
+    if not ip:
+        return False, ""
+    port = port or (443 if scheme == "https" else 80)
+    sock = None
+    conn = None
     try:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        sock = socket.create_connection((ip, port), timeout=PROBE_TIMEOUT)
+        if scheme == "https":
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            sock = ctx.wrap_socket(sock, server_hostname=hostname)
+            conn = http.client.HTTPSConnection(hostname, port, timeout=PROBE_TIMEOUT, context=ctx)
+        else:
+            conn = http.client.HTTPConnection(hostname, port, timeout=PROBE_TIMEOUT)
+        conn.sock = sock
+        conn.request("HEAD", "/", headers={"User-Agent": f"atarus-recon/{__version__}"})
+        resp = conn.getresponse()
+        return True, _format_headers(resp.getheaders())
+    except (OSError, http.client.HTTPException, ValueError):
+        return False, ""
+    finally:
+        if conn is not None:
+            conn.close()
+        elif sock is not None:
+            sock.close()
 
-        req = Request(url, method="HEAD", headers={"User-Agent": f"atarus-recon/{__version__}"})
-        with urlopen(req, timeout=PROBE_TIMEOUT, context=ctx) as resp:
-            return _format_headers(dict(resp.headers))
-    except HTTPError as e:
-        try:
-            return _format_headers(dict(e.headers))
-        except Exception:
-            return ""
-    except (URLError, socket.timeout, ssl.SSLError, OSError, ConnectionError):
-        return ""
-    except Exception:
-        return ""
 
-
-def _format_headers(headers: dict) -> str:
-    """Format headers as 'name: value' lines for substring matching."""
-    return "\n".join(f"{k}: {v}" for k, v in headers.items())
+def _format_headers(headers) -> str:
+    """Format headers as 'name: value' lines for substring matching.
+    Takes a list of (name, value) pairs, so repeated headers such as
+    Set-Cookie are all kept, or a dict."""
+    items = headers.items() if isinstance(headers, dict) else headers
+    return "\n".join(f"{k}: {v}" for k, v in items)
 
 
 def _check_cdn_metadata(host) -> str:

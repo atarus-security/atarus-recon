@@ -5,7 +5,7 @@ import urllib.request
 import urllib.error
 from atarus_recon import __version__
 from atarus_recon.models import ScanResult, Host
-from atarus_recon.scope import ScopeValidator
+from atarus_recon.scope import ScopeValidator, normalize_name
 from atarus_recon.runner import ModuleResult
 
 
@@ -53,12 +53,17 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
             return ModuleResult(success=False, message=f"crt.sh error: {type(e).__name__}: {e}")
 
     if data is None:
-        return ModuleResult(success=False, message=f"crt.sh failed: {last_error}")
+        return ModuleResult(success=False, message=f"crt.sh failed: {last_error or 'empty JSON body'}")
+
+    if not isinstance(data, list):
+        return ModuleResult(success=False, message="crt.sh returned JSON that is not a list of records")
 
     raw_names = set()
     wildcards = 0
     for entry in data:
-        name_value = entry.get("name_value", "")
+        name_value = entry.get("name_value", "") if isinstance(entry, dict) else ""
+        if not isinstance(name_value, str):
+            continue
         for name in name_value.split("\n"):
             name = name.strip().lower()
             if not name:
@@ -68,7 +73,8 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
                 continue
             raw_names.add(name)
 
-    in_scope = scope.filter_in_scope(list(raw_names))
+    in_scope = scope.filter_in_scope(sorted(raw_names))
+    malformed = len([n for n in raw_names if not normalize_name(n)])
 
     existing = {h.hostname for h in result.hosts}
     new_hosts = [name for name in in_scope if name not in existing]
@@ -79,4 +85,6 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
     msg = f"Found {len(new_hosts)} subdomains"
     if wildcards:
         msg += f" ({wildcards} wildcard certs noted)"
+    if malformed:
+        msg += f"; {malformed} names ignored because they are not valid DNS names"
     return ModuleResult(success=True, message=msg)

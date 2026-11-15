@@ -27,12 +27,15 @@ class ScopeTests(unittest.TestCase):
         self.assertTrue(ScopeValidator("lab.test").validate_target())
         self.assertTrue(ScopeValidator("xn--bcher-kva.example").validate_target())
         self.assertFalse(ScopeValidator("localhost").validate_target())
-        self.assertFalse(ScopeValidator("bad_label.com").validate_target())
+        self.assertFalse(ScopeValidator("bad_label.test").validate_target())
 
     def test_private_ips_rejected_for_active_scans(self):
         self.assertFalse(ScopeValidator.is_valid_ip("10.0.0.1"))
         self.assertFalse(ScopeValidator.is_valid_ip("127.0.0.1"))
-        self.assertTrue(ScopeValidator.is_valid_ip("8.8.8.8"))
+        self.assertFalse(ScopeValidator.is_valid_ip("203.0.113.44"), "documentation space is not public")
+        # A globally routable address, without naming a real one in the source.
+        with mock.patch("atarus_recon.scope._is_global", return_value=True):
+            self.assertTrue(ScopeValidator.is_valid_ip("203.0.113.44"))
 
 
 class NucleiTests(unittest.TestCase):
@@ -125,17 +128,17 @@ class NmapTests(unittest.TestCase):
     """nmap's exit code is checked; a failure is a check not made, never zero open ports."""
 
     NMAP_XML = (
-        '<?xml version="1.0"?><nmaprun><host><address addr="11.22.33.44"/><ports>'
+        '<?xml version="1.0"?><nmaprun><host><address addr="203.0.113.44"/><ports>'
         '<port protocol="tcp" portid="443"><state state="open"/><service name="https" product="nginx" version="1.2"/></port>'
         '</ports></host></nmaprun>'
     )
 
     def _run(self, returncode=0, stderr="", side_effect=None, xml=None):
-        # 203.0.113.0/24 is documentation space, which ipaddress treats as
-        # private and the module refuses to scan; nothing is sent here anyway,
-        # subprocess.run is replaced.
+        # 203.0.113.0/24 is documentation space, which the module refuses to
+        # scan, so the public-address check is patched to accept it. Nothing
+        # is sent anyway: subprocess.run is replaced.
         result = ScanResult(target="lab.test")
-        result.add_host(Host(hostname="lab.test", ip="11.22.33.44"))
+        result.add_host(Host(hostname="lab.test", ip="203.0.113.44"))
         seen = {}
 
         def fake_run(cmd, **kwargs):
@@ -146,7 +149,8 @@ class NmapTests(unittest.TestCase):
                 f.write(xml if xml is not None else self.NMAP_XML)
             return mock.Mock(returncode=returncode, stdout="", stderr=stderr)
 
-        with mock.patch.object(portscan.subprocess, "run", side_effect=fake_run):
+        with mock.patch.object(portscan.subprocess, "run", side_effect=fake_run), \
+             mock.patch("atarus_recon.scope._is_global", return_value=True):
             res = portscan.run(result, ScopeValidator("lab.test"), 10, False)
         return res, result, seen
 
@@ -160,7 +164,7 @@ class NmapTests(unittest.TestCase):
         res, result, _ = self._run(returncode=1, stderr="nmap: unable to open socket", xml="")
         self.assertFalse(res.success)
         self.assertIn("exited with code 1", res.message)
-        self.assertIn("11.22.33.44", res.message)
+        self.assertIn("203.0.113.44", res.message)
         self.assertIn("unknown", res.message)
         self.assertIn("unable to open socket", res.message)
         self.assertEqual(result.hosts[0].ports, [])
@@ -196,10 +200,12 @@ class GowitnessTests(unittest.TestCase):
             res = screenshot.run(result, ScopeValidator("lab.test"), 10, False)
         return res, seen
 
-    def test_clean_exit_counts_captures(self):
+    def test_clean_exit_with_no_capture_is_not_run(self):
+        # gowitness exits 0 even when the browser failed on every page, so
+        # exit 0 with no screenshot written is a check not made.
         res, seen = self._run()
         self.assertIsInstance(seen["cmd"], list)
-        self.assertTrue(res.success, res.message)
+        self.assertFalse(res.success, res.message)
         self.assertIn("Captured 0 screenshots", res.message)
 
     def test_non_zero_exit_is_not_run(self):
@@ -238,7 +244,9 @@ class CredcheckTests(unittest.TestCase):
 class RiskAndScreenshotTests(unittest.TestCase):
     def test_risk_scoring(self):
         result = ScanResult(target="lab.test")
-        h = Host(hostname="lab.test", ip="203.0.113.5", status_code=200)
+        # waf_checked: the WAF module got an answer and found none, so the
+        # no-WAF weight applies.
+        h = Host(hostname="lab.test", ip="203.0.113.5", status_code=200, waf_checked=True)
         h.ports = [Port(number=3389)]
         h.findings = [Finding(title="x", severity="high")]
         result.add_host(h)

@@ -38,7 +38,7 @@ def generate(result: ScanResult, output_dir: str) -> str:
     safe_target = ScopeValidator.sanitize_filename(result.target)
     output_path = os.path.join(output_dir, f"atarus-recon-{safe_target}.html")
 
-    with open(output_path, "w") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         f.write(html_content)
 
     return output_path

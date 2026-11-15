@@ -16,7 +16,7 @@ def generate(result: ScanResult, output_dir: str) -> list:
     paths = []
 
     breaches_path = os.path.join(output_dir, f"credcheck-breaches-{safe_target}.csv")
-    with open(breaches_path, "w", newline="") as f:
+    with open(breaches_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow([
             "breach_name",
@@ -44,7 +44,7 @@ def generate(result: ScanResult, output_dir: str) -> list:
     paths.append(breaches_path)
 
     remediation_path = os.path.join(output_dir, f"credcheck-remediation-{safe_target}.csv")
-    with open(remediation_path, "w", newline="") as f:
+    with open(remediation_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow([
             "priority",

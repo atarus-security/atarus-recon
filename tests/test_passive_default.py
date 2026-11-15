@@ -127,7 +127,7 @@ class PassiveDefaultTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(whois_asn, "_whois_python", return_value={}))
             stack.enter_context(mock.patch.object(credcheck, "_request_with_retry", return_value=None))
             stack.enter_context(mock.patch.object(webprobe, "_find_pd_httpx", return_value="/nonexistent/httpx"))
-            waf_sink = stack.enter_context(mock.patch.object(waf_detect, "urlopen", side_effect=_network_refused))
+            waf_sink = stack.enter_context(mock.patch.object(waf_detect, "_fetch_headers", side_effect=_network_refused))
             cert_sink = stack.enter_context(mock.patch.object(cert_analysis.socket, "create_connection", side_effect=_network_refused))
             stack.enter_context(_NetworkGuard())
             stack.enter_context(_quiet_console())
@@ -195,8 +195,18 @@ class PassiveDefaultTests(unittest.TestCase):
         self.assertIn("not a host", result.output)
 
 
+def _documentation_ranges_public():
+    """Python counts the documentation ranges as not global; these tests need
+    a routable stand-in without naming a routable address."""
+    return mock.patch("atarus_recon.scope._is_global", return_value=True)
+
+
 class ActiveScopeTests(unittest.TestCase):
     def test_entry_forms(self):
+        with _documentation_ranges_public():
+            self._entry_forms()
+
+    def _entry_forms(self):
         s = ActiveScope(["app.lab.test", "*.corp.test", "203.0.113.7", "198.51.100.0/24", "https://Portal.lab.test:8443/x"])
         self.assertEqual(s.entries, ["app.lab.test", "*.corp.test", "203.0.113.7", "198.51.100.0/24", "portal.lab.test"])
         self.assertTrue(s.covers("app.lab.test", "192.0.2.1"))
@@ -206,7 +216,7 @@ class ActiveScopeTests(unittest.TestCase):
         self.assertFalse(s.covers("corp.test", ""), "a domain entry does not cover the apex")
         self.assertTrue(s.covers("anything.example", "203.0.113.7"))
         self.assertTrue(s.covers("anything.example", "198.51.100.200"))
-        self.assertFalse(s.covers("anything.example", "198.51.101.1"))
+        self.assertFalse(s.covers("anything.example", "192.0.2.77"))
         self.assertFalse(s.covers("anything.example", "not-an-ip"))
 
     def test_scope_file_with_comments(self):
@@ -270,7 +280,9 @@ class ScopeEnforcementTests(unittest.TestCase):
         with _quiet_console(), _NetworkGuard():
             result = runner.run()
         self.assertEqual(probe.calls, [["app.lab.test"], ["app.lab.test"]])
-        self.assertEqual(result.out_of_scope, [{"hostname": "cdn.lab.test", "ip": "198.51.100.7"}])
+        self.assertEqual(result.out_of_scope, [
+            {"hostname": "cdn.lab.test", "ip": "198.51.100.7", "ips": ["198.51.100.7"], "reason": "not covered by --scope"}
+        ])
         self.assertEqual(len(result.hosts), 3, "the full host list is restored after each active module")
         self.assertEqual(result.mode, "active")
         self.assertEqual(result.active_scope, ["203.0.113.0/24"])
@@ -279,7 +291,7 @@ class ScopeEnforcementTests(unittest.TestCase):
 
     def test_name_scope_covers_by_name(self):
         runner, probe = _make_runner(active=True, assume_yes=True, scope_entries=("*.lab.test",))
-        with _quiet_console(), _NetworkGuard():
+        with _quiet_console(), _NetworkGuard(), _documentation_ranges_public():
             result = runner.run()
         self.assertEqual(probe.calls[0], ["app.lab.test", "cdn.lab.test"])
         self.assertEqual(result.out_of_scope, [])
@@ -383,6 +395,7 @@ class PassiveReportTests(unittest.TestCase):
         self.assertIn("Nuclei was not run", content)
         self.assertNotIn("No vulnerabilities detected", content)
         self.assertIn("Out of scope, not probed", content)
+        self.assertNotIn("No open ports detected", content)
         self.assertIn("cdn.lab.test", content)
         self.assertIn("atarus-recon v0.6.0", content)
 

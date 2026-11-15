@@ -1,7 +1,7 @@
 import subprocess
 import os
 from atarus_recon.models import ScanResult, Host
-from atarus_recon.scope import ScopeValidator
+from atarus_recon.scope import ScopeValidator, normalize_name
 from atarus_recon.runner import ModuleResult
 
 
@@ -28,7 +28,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         proc = subprocess.run(
             cmd,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=120,
             env=env,
         )
@@ -47,7 +47,8 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         if name:
             raw_names.add(name)
 
-    in_scope = scope.filter_in_scope(list(raw_names))
+    in_scope = scope.filter_in_scope(sorted(raw_names))
+    malformed = len([n for n in raw_names if not normalize_name(n)])
 
     existing = {h.hostname for h in result.hosts}
     new_hosts = [name for name in in_scope if name not in existing]
@@ -55,4 +56,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
     for hostname in sorted(new_hosts):
         result.add_host(Host(hostname=hostname))
 
-    return ModuleResult(success=True, message=f"Found {len(new_hosts)} new subdomains ({len(in_scope)} total)")
+    msg = f"Found {len(new_hosts)} new subdomains ({len(in_scope)} total)"
+    if malformed:
+        msg += f"; {malformed} names ignored because they are not valid DNS names"
+    return ModuleResult(success=True, message=msg)

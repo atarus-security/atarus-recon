@@ -31,7 +31,19 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
     for host in result.hosts:
         try:
             answers = resolver.resolve(host.hostname, "A")
-            host.ip = str(answers[0])
+            # Keep every record, in the order given, without repeats. The
+            # scope gate judges the whole set: a tool handed the name may
+            # connect to any of them, and resolvers rotate the order.
+            ips = []
+            for answer in answers:
+                addr = str(answer)
+                if addr not in ips:
+                    ips.append(addr)
+            if not ips:
+                failed += 1
+                continue
+            host.ips = ips
+            host.ip = ips[0]
             resolved += 1
         except (
             dns.resolver.NXDOMAIN,

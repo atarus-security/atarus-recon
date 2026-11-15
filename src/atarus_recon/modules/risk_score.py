@@ -30,7 +30,8 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
             if port.number in high_risk_ports:
                 score += 15
 
-        if not host.waf and not host.cdn:
+        # Only a WAF check that got an answer can say there is no WAF.
+        if host.waf_checked and not host.waf and not host.cdn:
             score += 10
 
         if host.cert_data:

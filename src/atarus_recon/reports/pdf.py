@@ -21,7 +21,7 @@ def generate(result: ScanResult, output_dir: str, existing_html_path: str = None
     else:
         html_path = html_report.generate(result, output_dir)
 
-    with open(html_path, "r") as f:
+    with open(html_path, "r", encoding="utf-8") as f:
         html_content = f.read()
 
     pdf_css = """

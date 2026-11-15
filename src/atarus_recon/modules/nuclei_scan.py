@@ -57,9 +57,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
     try:
         with os.fdopen(fd, "w") as f:
             for host in web_hosts:
-                has_443 = any(p.number == 443 for p in host.ports)
-                scheme = "https" if has_443 or host.status_code == 200 else "http"
-                f.write(f"{scheme}://{host.hostname}\n")
+                f.write(_target_url(host) + "\n")
 
         cmd = [
             nuclei_path,
@@ -82,7 +80,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         env["PATH"] = os.path.expanduser("~/go/bin") + ":" + env.get("PATH", "")
 
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=NUCLEI_TIMEOUT, env=env)
+            proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=NUCLEI_TIMEOUT, env=env)
         except subprocess.TimeoutExpired:
             return ModuleResult(
                 success=False,
@@ -98,7 +96,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
             )
 
         try:
-            with open(output_file, "r") as f:
+            with open(output_file, "r", encoding="utf-8", errors="replace") as f:
                 raw = f.read()
         except OSError:
             return ModuleResult(success=False, message="nuclei wrote no output file; check not completed")
@@ -166,6 +164,15 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         success=True,
         message=f"Found {total_findings} findings at low severity or above across {len(web_hosts)} web hosts",
     )
+
+
+def _target_url(host) -> str:
+    """The URL httpx answered on; the old guess only when webprobe recorded none."""
+    if host.web_url:
+        return host.web_url
+    has_443 = any(p.number == 443 for p in host.ports)
+    scheme = "https" if has_443 or host.status_code == 200 else "http"
+    return f"{scheme}://{host.hostname}"
 
 
 def _find_nuclei() -> str:

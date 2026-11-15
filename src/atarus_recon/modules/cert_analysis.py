@@ -4,6 +4,10 @@ Replaces the old implementation that relied on ssl._ssl._test_decode_cert,
 which is a private API removed in Python 3.12+. The cryptography library
 parses certificates directly and supports self-signed certs without
 requiring a trusted CA chain.
+
+The TLS connection goes to the address the scope check approved (host.ip),
+with the host name only in SNI, so the name is not resolved again between
+the confirmation and the handshake.
 """
 import ssl
 import socket
@@ -26,7 +30,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
     issues = 0
 
     for host in https_hosts:
-        cert_info = _get_cert_info(host.hostname, verbose)
+        cert_info = _get_cert_info(host.hostname, host.ip, verbose)
         if cert_info:
             host.cert_data = cert_info
             analyzed += 1
@@ -38,27 +42,37 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
             if cert_info.get("self_signed", False):
                 issues += 1
 
+    if not analyzed:
+        return ModuleResult(
+            success=False,
+            message=f"no certificate could be read from any of the {len(https_hosts)} web hosts on port 443",
+        )
+
     msg = f"Analyzed {analyzed} certificates"
     if issues:
         msg += f", {issues} issues found"
+    if analyzed < len(https_hosts):
+        msg += f"; no certificate read from {len(https_hosts) - analyzed} hosts"
 
     return ModuleResult(success=True, message=msg)
 
 
-def _get_cert_info(hostname: str, verbose: bool) -> dict:
-    """Fetch the cert chain and parse the leaf with the cryptography library."""
+def _get_cert_info(hostname: str, ip: str, verbose: bool = False) -> dict:
+    """Fetch the cert chain from ip:443 and parse the leaf with the cryptography library."""
+    if not ip:
+        return {}
     try:
         from cryptography import x509
         from cryptography.hazmat.backends import default_backend
     except ImportError:
-        return _get_cert_info_fallback(hostname)
+        return _get_cert_info_fallback(hostname, ip)
 
     try:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
 
-        with socket.create_connection((hostname, 443), timeout=8) as sock:
+        with socket.create_connection((ip, 443), timeout=8) as sock:
             with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
                 der = ssock.getpeercert(binary_form=True)
 
@@ -143,11 +157,11 @@ def _get_cert_info(hostname: str, verbose: bool) -> dict:
         return {}
 
 
-def _get_cert_info_fallback(hostname: str) -> dict:
+def _get_cert_info_fallback(hostname: str, ip: str) -> dict:
     """Best-effort fallback when cryptography is unavailable."""
     try:
         ctx = ssl.create_default_context()
-        with socket.create_connection((hostname, 443), timeout=8) as sock:
+        with socket.create_connection((ip, 443), timeout=8) as sock:
             with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
                 parsed = ssock.getpeercert()
     except Exception:

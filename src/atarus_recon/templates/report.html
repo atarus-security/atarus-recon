@@ -316,6 +316,7 @@
         <tr><td>Mode</td><td>{{ result.mode }}{% if result.mode == 'passive' %} (no packets were sent to the target's hosts){% endif %}</td></tr>
         {% if result.active_scope %}<tr><td>Active scope</td><td>{{ result.active_scope | join(', ') }}</td></tr>{% endif %}
         {% if result.confirmation %}<tr><td>Confirmation</td><td>{{ result.confirmation }}</td></tr>{% endif %}
+        {% if result.scope_note %}<tr><td>Scope note</td><td>{{ result.scope_note }}</td></tr>{% endif %}
         <tr><td>Tool</td><td>atarus-recon v{{ version }}</td></tr>
       </table>
     </div>
@@ -333,7 +334,7 @@
     <div class="section-title">Out of scope, not probed</div>
     <div class="infra-card">
       <table class="infra-table">
-        {% for h in result.out_of_scope %}<tr><td>{{ h.hostname }}</td><td>{{ h.ip }}</td></tr>{% endfor %}
+        {% for h in result.out_of_scope %}<tr><td>{{ h.hostname }}</td><td>{{ (h.ips or [h.ip]) | join(', ') }}</td><td>{{ h.reason }}</td></tr>{% endfor %}
       </table>
     </div>
     {% endif %}
@@ -435,7 +436,7 @@
           {% endif %}
           <span class="toggle">&#9660;</span>
         </h3>
-        <span class="ip">{{ host.ip or 'unresolved' }}</span>
+        <span class="ip">{{ (host.ips | join(', ')) if host.ips else (host.ip or 'unresolved') }}</span>
       </div>
       <div class="host-body collapsed">
 
@@ -451,7 +452,7 @@
           </div>
           <div class="meta-item">
             <div class="meta-label">WAF/CDN</div>
-            <div class="meta-value">{{ host.waf or host.cdn_name or 'None detected' }}</div>
+            <div class="meta-value">{{ host.waf or host.cdn_name or ('None detected' if host.waf_checked else 'Not checked') }}</div>
           </div>
           <div class="meta-item">
             <div class="meta-label">Risk score</div>
@@ -511,8 +512,10 @@
           {% endfor %}
           </tbody>
         </table>
-        {% elif host.ip %}
+        {% elif host.ports_scanned %}
         <div class="no-data">No open ports detected in top 100</div>
+        {% elif host.ip %}
+        <div class="no-data">Ports not scanned for this host</div>
         {% endif %}
       </div>
     </div>

@@ -3,6 +3,10 @@ from datetime import datetime
 from typing import Optional
 
 
+def _now() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
 @dataclass
 class Port:
     number: int
@@ -33,12 +37,20 @@ class Finding:
 @dataclass
 class Host:
     hostname: str
+    # ip is the address the modules that connect themselves (WAF, cert, nmap)
+    # use. ips is every A record the name answered with; the scope gate judges
+    # all of them, because httpx, nuclei and gowitness are handed the name and
+    # may connect to any address in the set.
     ip: str = ""
+    ips: list = field(default_factory=list)
     ports: list = field(default_factory=list)
     technologies: list = field(default_factory=list)
     findings: list = field(default_factory=list)
     screenshot_path: str = ""
     status_code: int = 0
+    # scheme://host[:port] that httpx got its answer from; nuclei and
+    # gowitness are pointed here.
+    web_url: str = ""
     title: str = ""
     cdn: bool = False
     cdn_name: str = ""
@@ -46,6 +58,10 @@ class Host:
     cert_data: dict = field(default_factory=dict)
     risk_score: int = 0
     risk_level: str = ""
+    # Set by the module that made the check, so a report can tell "checked,
+    # nothing found" from "never checked".
+    ports_scanned: bool = False
+    waf_checked: bool = False
 
 
 @dataclass
@@ -78,7 +94,8 @@ class CredentialExposure:
 @dataclass
 class ScanResult:
     target: str
-    started_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    # Local time with its UTC offset, so a report read in another time zone is unambiguous.
+    started_at: str = field(default_factory=lambda: _now())
     finished_at: str = ""
     hosts: list = field(default_factory=list)
     findings: list = field(default_factory=list)
@@ -97,6 +114,9 @@ class ScanResult:
     modules_not_run: list = field(default_factory=list)
     # Resolved hosts that fell outside --scope and were therefore not probed.
     out_of_scope: list = field(default_factory=list)
+    # Set at the confirmation gate when httpx, nuclei or gowitness run: they
+    # are handed names, not the checked addresses, and resolve them again.
+    scope_note: str = ""
     # Set by the nuclei module when it ran to completion and found nothing:
     # says plainly what that result does and does not vouch for.
     nuclei_detail: str = ""
@@ -105,7 +125,7 @@ class ScanResult:
         self.hosts.append(host)
 
     def finalize(self):
-        self.finished_at = datetime.now().isoformat()
+        self.finished_at = _now()
         self.total_subdomains = len(self.hosts)
         self.total_alive = len([h for h in self.hosts if h.ip])
         self.total_ports = sum(len(h.ports) for h in self.hosts)

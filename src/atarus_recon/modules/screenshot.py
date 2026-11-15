@@ -46,7 +46,9 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         has_443 = any(p.number == 443 for p in host.ports)
         has_80 = any(p.number == 80 for p in host.ports)
 
-        if has_443 or host.status_code == 200:
+        if host.web_url:
+            url = host.web_url
+        elif has_443 or host.status_code == 200:
             url = f"https://{host.hostname}"
         elif has_80:
             url = f"http://{host.hostname}"
@@ -55,6 +57,10 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
 
         url_to_host[url.lower()] = host
         urls.append(url)
+
+    # Files already in the directory belong to an earlier run into the same
+    # output directory; only files written or rewritten by this run count.
+    before = _snapshot(screenshot_dir)
 
     fd, url_file = tempfile.mkstemp(suffix=".txt")
     try:
@@ -80,7 +86,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         proc = subprocess.run(
             cmd,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=GOWITNESS_TIMEOUT,
             env=env,
         )
@@ -107,12 +113,32 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
             message=f"gowitness exited with code {proc.returncode}; screenshots not captured. {tail}".strip(),
         )
 
-    captured = _match_screenshots_exact(web_hosts, screenshot_dir)
+    captured = _match_screenshots_exact(web_hosts, screenshot_dir, before)
 
-    return ModuleResult(success=True, message=f"Captured {captured} screenshots")
+    if not captured:
+        # gowitness exits 0 even when the browser failed on every page.
+        return ModuleResult(
+            success=False,
+            message=f"Captured 0 screenshots: gowitness exited 0 but wrote no screenshot for any of the "
+                    f"{len(web_hosts)} web hosts. {(proc.stderr or '').strip()[-STDERR_TAIL:]}".strip(),
+        )
+
+    return ModuleResult(success=True, message=f"Captured {captured} of {len(web_hosts)} screenshots")
 
 
-def _match_screenshots_exact(hosts: list, screenshot_dir: str) -> int:
+def _snapshot(directory: str) -> dict:
+    """{file name: modification time in ns} for the files now in directory."""
+    out = {}
+    try:
+        for entry in os.scandir(directory):
+            if entry.is_file():
+                out[entry.name] = entry.stat().st_mtime_ns
+    except OSError:
+        pass
+    return out
+
+
+def _match_screenshots_exact(hosts: list, screenshot_dir: str, before: dict = None) -> int:
     """Match screenshot files to hosts using exact filename anchors.
 
     gowitness names files like https---hostname-port.png. We extract the
@@ -127,10 +153,14 @@ def _match_screenshots_exact(hosts: list, screenshot_dir: str) -> int:
     if not files:
         return 0
 
+    before = before or {}
+    now = _snapshot(screenshot_dir)
     file_to_hostname = {}
     for filename in files:
         if not filename.endswith(".png"):
             continue
+        if filename in before and now.get(filename) == before[filename]:
+            continue  # left over from an earlier run
         hostname = _extract_hostname_from_filename(filename)
         if hostname:
             file_to_hostname[filename] = hostname.lower()

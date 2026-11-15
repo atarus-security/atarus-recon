@@ -12,7 +12,7 @@ def generate(result, output_dir: str) -> str:
     data = _to_dict(result)
     data = _make_paths_relative(data, output_dir)
 
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, default=str)
     return path
 

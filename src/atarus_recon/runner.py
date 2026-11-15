@@ -29,6 +29,40 @@ class ModuleResult:
         self.message = message
 
 
+def _addresses(host) -> list:
+    """Every address the host resolved to, the one the pinned modules use first."""
+    out = [a for a in (getattr(host, "ips", None) or []) if a]
+    if host.ip and host.ip not in out:
+        out.insert(0, host.ip)
+    return out
+
+
+# Active modules that hand a host name, not the checked address, to an
+# external tool, which then resolves the name itself.
+NAME_RESOLVING_TOOLS = (("webprobe", "httpx"), ("nuclei", "nuclei"), ("screenshot", "gowitness"))
+
+
+def name_resolving_note(active_keys) -> str:
+    """What the gate cannot hold for the tools that look a name up themselves, or ""."""
+    keys = set(active_keys)
+    tools = [tool for key, tool in NAME_RESOLVING_TOOLS if key in keys]
+    if not tools:
+        return ""
+    if len(tools) == 1:
+        named, verb, pron = tools[0], "is", "it"
+    else:
+        named = ", ".join(tools[:-1]) + " and " + tools[-1]
+        verb, pron = "are", "they"
+    return (
+        f"{named} {verb} given the host name, not the address checked here, and "
+        f"look the name up again {'itself' if pron == 'it' else 'themselves'}. If the name's DNS answer "
+        f"changes after this check (a short TTL, a rebinding record, or a resolver "
+        f"that answers differently from this one), {pron} can reach an address not "
+        f"listed here, including a loopback, private or metadata address. "
+        f"--skip webprobe,nuclei,screenshot avoids it."
+    )
+
+
 class ReconRunner:
     """Orchestrates the recon pipeline.
 
@@ -107,21 +141,27 @@ class ReconRunner:
         configuration file is read.
         """
         in_scope, out_of_scope = self.active_scope.split_hosts(self.result.hosts)
-        self.result.out_of_scope = [{"hostname": h.hostname, "ip": h.ip} for h in out_of_scope]
+        self.result.out_of_scope = [
+            {"hostname": h.hostname, "ip": h.ip, "ips": _addresses(h), "reason": reason}
+            for h, reason in out_of_scope
+        ]
 
         console.print("[bold yellow]Active checks requested[/]")
         console.print(f"  [bold white]Scope:[/] {self.active_scope.describe()}")
         console.print(f"  [bold white]Active modules:[/] {', '.join(m['key'] for m in active_modules)}")
+        self.result.scope_note = name_resolving_note(m["key"] for m in active_modules)
         if in_scope:
             console.print(f"  [bold white]Hosts to probe ({len(in_scope)}):[/]")
             for h in in_scope:
-                console.print(f"    {shown(h.hostname)} -> {shown(h.ip)}")
+                console.print(f"    {shown(h.hostname)} -> {shown(', '.join(_addresses(h)))}")
         else:
             console.print("  [bold white]Hosts to probe:[/] none")
         if out_of_scope:
             console.print(f"  [bold white]Out of scope, not probed ({len(out_of_scope)}):[/]")
-            for h in out_of_scope:
-                console.print(f"    {shown(h.hostname)} -> {shown(h.ip)}")
+            for h, reason in out_of_scope:
+                console.print(f"    {shown(h.hostname)} -> {shown(', '.join(_addresses(h)))} [dim]({shown(reason)})[/]")
+        if self.result.scope_note:
+            console.print(f"  [bold white]Note:[/] {shown(self.result.scope_note)}")
         console.print()
 
         if not in_scope:

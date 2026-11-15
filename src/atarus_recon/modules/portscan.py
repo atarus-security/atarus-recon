@@ -1,3 +1,4 @@
+import ipaddress
 import subprocess
 import xml.etree.ElementTree as ET
 import tempfile
@@ -12,6 +13,26 @@ STDERR_TAIL = 200
 
 # Per-address limit, in seconds.
 NMAP_TIMEOUT = 300
+
+
+def _is_host_address(ip_str: str) -> bool:
+    """True for a unicast address nmap can scan as one host.
+
+    Whether the address may be scanned at all is the scope gate's decision:
+    the runner hands this module only hosts inside --scope, and a private or
+    other non-public address is inside only when a network entry the user
+    wrote contains it. That entry is the opt in for an internal engagement,
+    so such a host is port scanned like any other. What is refused here is a
+    value that is not one host: not an address, 0.0.0.0, multicast and the
+    limited broadcast address.
+    """
+    try:
+        addr = ipaddress.ip_address((ip_str or "").strip())
+    except ValueError:
+        return False
+    if addr.is_unspecified or addr.is_multicast:
+        return False
+    return not (addr.version == 4 and addr == ipaddress.IPv4Address("255.255.255.255"))
 
 
 def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: bool) -> ModuleResult:
@@ -30,7 +51,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
     ip_to_hosts = {}
     skipped = 0
     for host in alive_hosts:
-        if not ScopeValidator.is_valid_ip(host.ip):
+        if not _is_host_address(host.ip):
             skipped += 1
             continue
         if host.ip not in ip_to_hosts:
@@ -38,7 +59,10 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         ip_to_hosts[host.ip].append(host)
 
     if not ip_to_hosts:
-        return ModuleResult(success=False, message=f"No valid public IPs (skipped {skipped})")
+        return ModuleResult(
+            success=False,
+            message=f"nmap scans unicast host addresses only; {skipped} in-scope host(s) had none and were not port scanned",
+        )
 
     unique_ips = list(ip_to_hosts.keys())
     total_ports = 0
@@ -59,7 +83,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
                 ip,
             ]
 
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=NMAP_TIMEOUT)
+            proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=NMAP_TIMEOUT)
             if proc.returncode != 0:
                 tail = (proc.stderr or proc.stdout or "").strip().replace("\n", " ")[-STDERR_TAIL:]
                 failures.append(f"{ip}: nmap exited with code {proc.returncode} {tail}".strip())
@@ -93,7 +117,9 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
                      f"ports are unknown: " + "; ".join(failures))[:600],
         )
 
-    return ModuleResult(success=True, message=f"Found {total_ports} open ports across {len(unique_ips)} IPs")
+    note = (f"; {skipped} in-scope host(s) without a unicast host address were not port scanned"
+            if skipped else "")
+    return ModuleResult(success=True, message=f"Found {total_ports} open ports across {len(unique_ips)} IPs{note}")
 
 
 def _parse_nmap_xml(xml_path: str, ip: str, ip_to_hosts: dict) -> int:
@@ -102,6 +128,10 @@ def _parse_nmap_xml(xml_path: str, ip: str, ip_to_hosts: dict) -> int:
     root = tree.getroot()
 
     ports_found = 0
+
+    # The XML parsed, so this address was scanned: zero open ports is now a result.
+    for host in ip_to_hosts.get(ip, []):
+        host.ports_scanned = True
 
     for host_elem in root.findall(".//host"):
         for port_elem in host_elem.findall(".//port"):

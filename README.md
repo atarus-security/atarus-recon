@@ -4,7 +4,7 @@ External attack surface reconnaissance tool by [Atarus Offensive Security](https
 
 Single command. Twelve modules. Every external recon step a pentester runs at the start of an engagement, chained into one branded report.
 
-Passive by default. A plain run only asks public sources (certificate transparency, subfinder's passive sources, DNS, whois, HaveIBeenPwned) and sends nothing to the target's own hosts. The six modules that do send packets to the target (port scan, web probe, WAF check, certificate grab, nuclei, screenshots) run only behind `--active`, only against hosts inside a `--scope` you provide, and only after you type `yes` on the terminal. See [Passive by default, active on request](#passive-by-default-active-on-request).
+Passive by default. A plain run only asks public sources (certificate transparency, subfinder's passive sources, DNS, whois, HaveIBeenPwned) and sends nothing to the target's own hosts. The six modules that do send packets to the target (port scan, web probe, WAF check, certificate grab, nuclei, screenshots) run only behind `--active`, only against hosts inside a `--scope` you provide, and only after you type `yes` on the terminal. (httpx, nuclei and gowitness look host names up again themselves; see Known issues.) See [Passive by default, active on request](#passive-by-default-active-on-request).
 
 ## Quick start
 
@@ -112,7 +112,7 @@ go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
 
 Resolves every collected subdomain via DNS. Hosts that resolve to an IP are kept. Dead subdomains are filtered out.
 
-**Output added to scan**: `Host.ip` populated for every alive host
+**Output added to scan**: `Host.ips` holds every A record a name answered with, in the order given, and `Host.ip` the first of them, for every alive host
 
 **Notes for pentesters**:
 - Uses dnspython for direct DNS resolution. Honors system resolver config.
@@ -143,7 +143,7 @@ Pulls WHOIS data for the root domain.
 
 Runs nmap against every in-scope alive host. Default scope is the top 100 TCP ports with service version detection (`-sV --top-ports 100`).
 
-**Output added to scan**: `Host.ports` list of `Port` objects with number, protocol, state, service name, version, banner
+**Output added to scan**: `Host.ports` list of `Port` objects with number, protocol, state, service name, version, banner; `Host.ports_scanned` is true once nmap's output for that address parsed, so the report can tell "no open ports" from "not scanned"
 
 **Install nmap**:
 ```bash
@@ -155,7 +155,7 @@ sudo apt install nmap
 - Service detection accuracy depends on nmap version and signature database. Run `sudo nmap --script-updatedb` to refresh.
 - Banner grabbing is on by default. Sensitive services like SMB and RDP get probed. Be sure your scope authorizes this.
 - nmap's `--max-rate` is set to ten times `--rate-limit`, so the default of 10 gives 100 packets per second.
-- Only public IP addresses are scanned. Hosts that resolve to private, loopback or link-local addresses are skipped.
+- nmap scans every in-scope host's checked address. A host at a loopback, link-local, private or other non-public address is in scope only when a network entry in `--scope` contains that address (for example `10.20.0.0/16` on an internal engagement); that entry is your opt in, and such a host is port scanned like any other. Without it the host is out of scope and nothing is sent to it. A value that is not a single host address (0.0.0.0, multicast, 255.255.255.255) is never passed to nmap, and the module says how many hosts it left out.
 
 ---
 
@@ -165,7 +165,7 @@ sudo apt install nmap
 
 Wraps [httpx](https://github.com/projectdiscovery/httpx) to identify alive web services. Pulls HTTP status code, page title, technology stack via Wappalyzer signatures, and CDN indicators.
 
-**Output added to scan**: `Host.status_code`, `Host.title`, `Host.technologies`, `Host.cdn`, `Host.cdn_name`
+**Output added to scan**: `Host.status_code`, `Host.title`, `Host.technologies`, `Host.cdn`, `Host.cdn_name`, and `Host.web_url` (the scheme, host and port httpx got its answer from, which nuclei and gowitness then use)
 
 **Install httpx**:
 ```bash
@@ -183,9 +183,9 @@ go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
 
 **Active module.** Runs only with `--active`, against hosts inside `--scope`, after the terminal confirmation.
 
-Sends one HTTPS HEAD request to `/` on every in-scope web host (then HTTP if HTTPS fails) and inspects the response headers for signatures of a Web Application Firewall or CDN protection layer.
+Sends one HTTPS HEAD request to `/` on every in-scope web host (then HTTP if HTTPS gets no answer) and inspects the response headers for signatures of a Web Application Firewall or CDN protection layer. The request goes to the address the scope check approved, and a redirect is never followed.
 
-**Output added to scan**: `Host.waf` populated with detected protection name (Cloudflare, Akamai, AWS WAF, F5, Imperva, etc)
+**Output added to scan**: `Host.waf` populated with detected protection name (Cloudflare, Akamai, AWS WAF, F5, Imperva, etc); `Host.waf_checked` is true when the HEAD request got an answer. A host that never answered reads "Not checked" in the report, not "None detected"
 
 **Notes for pentesters**:
 - One HEAD request per host, no rule fingerprinting or attack payloads. Header inspection only, but it is a request to the target, so it is an active module.
@@ -337,12 +337,22 @@ atarus-recon -t example.com --only crtsh,subfinder,resolve
 # Custom output directory
 atarus-recon -t example.com -o ./engagements/acme/recon
 
-# List all modules
+# List all modules (the keys --skip and --only accept)
 atarus-recon --list-modules
 
 # Show version
 atarus-recon --version
 ```
+
+`--skip` and `--only` take module keys from `--list-modules`, comma-separated, and may be repeated (`--skip portscan --skip nuclei` skips both). An unknown key, or `--skip` together with `--only`, stops with a usage error before anything runs, so a typo cannot leave a module you meant to skip in the run. `--scope` may also be repeated; the scope is every entry named. A `--scope` value that looks like a file name (it contains a path separator or ends in `.txt`, `.lst`, `.csv`, `.conf` and the like) but does not exist is an error, not a host name. So `--scope lab.test/` is refused; write `--scope lab.test`.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | The run finished and the reports were written. Modules that could not run are listed in the terminal and in the report (`modules_not_run`); check that list, a 0 does not mean every check was made. |
+| 2 | Usage error, nothing ran and no report was written: a bad or conflicting flag, a target that is not a domain name, an output directory that cannot be written, or one of the gate rules above. |
+| 1 | Interrupted with Ctrl-C (no report is written) or an unexpected error. |
 
 ### Rate limiting
 
@@ -378,9 +388,11 @@ Without `--active`, only the passive modules run: `crtsh`, `subfinder`, `resolve
    | `203.0.113.7` | that address |
    | `203.0.113.0/24` | every address in that network |
 
-   A discovered host is probed only if its name matches a host or domain entry, or its resolved address falls inside a network entry. Everything else is listed as out of scope, in the terminal, the HTML report and the JSON (`out_of_scope`), and is never handed to an active module. Discovery (crt.sh, subfinder) is still limited to the target domain and its subdomains, as before.
+   A discovered host is probed only if every address it resolved to is admitted: an address inside a network entry, or a public (globally routable) address of a name that matches a host or domain entry. All the A records of a name are judged, not only the first, so a name with one public and one loopback record is out of scope whatever order the resolver returns them in. A name that matches a host or domain entry but resolves to a loopback, link-local (such as the cloud metadata address 169.254.169.254), private, shared (100.64.0.0/10), unspecified, multicast, reserved or documentation address, the Azure platform address 168.63.129.16, or an IPv6 form that carries an IPv4 address (IPv4-mapped, IPv4-compatible, IPv4-translated, or NAT64 under 64:ff9b::/96) is out of scope: whoever controls a record under the target zone could otherwise point the scan at your own machine, your LAN or a metadata endpoint. The only way to admit such a host is a network entry that contains its address (for example `10.20.0.0/16` for an internal engagement). Every host that is out of scope is listed, with the reason, in the terminal, the HTML report and the JSON (`out_of_scope`, each entry with `hostname`, `ip`, `ips` and `reason`), and is not handed to any active module.
 
-2. **A confirmation the software cannot give for you.** Before the first packet to the target, after the passive modules have resolved the hosts, the tool prints the exact scope, the list of active modules, and every host that will be probed with its resolved IP, then waits for you to type the word `yes` on the controlling terminal (`/dev/tty`). Anything else, end of file, or no terminal at all means the active modules do not run; the passive results and the report are still written.
+   What this check holds and what it does not. It judges the addresses each name resolved to during the passive phase. The WAF and certificate checks and nmap connect to one of those checked addresses and to nothing else. httpx, nuclei and gowitness are given the host name, not the address, and look the name up again themselves, each in its own process and possibly with a different resolver. If a name's DNS answer changes after the check (a short TTL, a rebinding record, or a resolver that answers differently from the one atarus-recon used), those three tools can reach an address the check never saw, including a loopback, private or metadata address. The confirmation and the report say this whenever any of the three runs. To avoid it, run with `--skip webprobe,nuclei,screenshot`; without httpx there are no web hosts, so the WAF and certificate checks then have nothing to check either. Discovery (crt.sh, subfinder) is still limited to the target domain and its subdomains, as before.
+
+2. **A confirmation the software cannot give for you.** Before the first packet to the target, after the passive modules have resolved the hosts, the tool prints the exact scope, the list of active modules, and every host that will be probed with every address it resolved to, then waits for you to type the word `yes` on the controlling terminal (`/dev/tty`). Anything else, end of file, or no terminal at all means the active modules do not run; the passive results and the report are still written.
 
    For non-interactive runs, `--yes` stands in for the typed word. It is accepted only together with `--scope`, it is printed at the start of the run, and it is recorded in the report (`confirmation`). No environment variable and no configuration file can stand in for the confirmation: the tool reads neither for these options. Be precise about what this does and does not protect against. An automation or AI agent driving the CLI cannot answer `/dev/tty`, but it can pass `--yes` together with `--scope`, and that opens the gate without a terminal; the report then records `--yes flag (no terminal confirmation)`. In a non-interactive run the scope file is the control: keep it under your own change control and treat a `--yes` run as authorized exactly as far as that file says, no further.
 
@@ -398,18 +410,20 @@ If you need to scan multiple unrelated domains, run the tool once per target, ea
 | whois | passive | the registry's whois server, via the system `whois` command or python-whois | the target domain | every run |
 | credcheck | passive | haveibeenpwned.com over HTTPS | one GET with the target domain | every run |
 | risk | passive | nothing | nothing, computed offline | every run |
-| portscan | active | every in-scope resolved public IP | nmap TCP connect scan of the top 100 ports with version probes (`-sT -sV`), up to ten times `--rate-limit` packets per second | `--active` only, after confirmation |
-| webprobe | active | every in-scope alive host, HTTP and HTTPS | httpx GET requests, following redirects | `--active` only, after confirmation |
-| waf | active | every in-scope web host | one HTTPS HEAD request to `/`, then HTTP if that fails | `--active` only, after confirmation |
-| cert | active | every in-scope web host, port 443 | one TLS handshake | `--active` only, after confirmation |
-| nuclei | active | every in-scope web host | nuclei templates at low severity and above: many HTTP requests per host; redirects disabled (`-disable-redirects`), no interactsh callbacks (`-ni`), so nothing goes to ProjectDiscovery's out of band server | `--active` only, after confirmation, when nuclei is installed |
+| portscan | active | the checked address of every in-scope host (public, or inside a network entry you listed) | nmap TCP connect scan of the top 100 ports with version probes (`-sT -sV`), up to ten times `--rate-limit` packets per second | `--active` only, after confirmation |
+| webprobe | active | every in-scope alive host, HTTP and HTTPS | httpx GET requests, following a redirect only when it stays on the same host (`-follow-host-redirects`) | `--active` only, after confirmation |
+| waf | active | every in-scope web host, at the address the scope check approved | one HTTPS HEAD request to `/`, then HTTP if that gets no answer; redirects are not followed | `--active` only, after confirmation |
+| cert | active | every in-scope web host, port 443, at the address the scope check approved | one TLS handshake (host name sent as SNI only) | `--active` only, after confirmation |
+| nuclei | active | every in-scope web host | nuclei templates at low severity and above: many HTTP requests per host; redirects disabled (`-disable-redirects`), no interactsh callbacks (`-ni`), so templates do not send out of band callbacks to ProjectDiscovery's interactsh server | `--active` only, after confirmation, when nuclei is installed |
 | screenshot | active | every in-scope web host | headless browser page loads through gowitness, following navigations | `--active` only, after confirmation |
 
 The target domain is disclosed to the passive third parties (crt.sh, subfinder's sources, whois, HaveIBeenPwned). Skip a module with `--skip` if an engagement forbids that.
 
 ### Known issues
 
-- Redirects: httpx (`-follow-redirects`) and gowitness follow redirects wherever they point, so an in-scope host that redirects off-domain still causes a request to the redirect target. Off-scope redirect blocking is planned.
+- Redirects: gowitness drives a real browser, which follows redirects and loads page resources wherever they point, so an in-scope host that redirects off-domain still causes requests to the redirect target. Skip it with `--skip screenshot` when that matters. httpx follows only same-host redirects, nuclei follows none, and the WAF and certificate checks follow none.
+- Re-resolution: the scope check judges the addresses each name resolved to during the passive phase. The WAF and certificate checks and nmap connect to a checked address; httpx, nuclei and gowitness are given the host name and resolve it again themselves. Any name whose DNS answer changes after the check (a short TTL, a rebinding record, or a resolver that answers differently) can send those three tools to a loopback, private or metadata address. `--skip webprobe,nuclei,screenshot` avoids it. Pinning those tools to the checked address is not done: their address-pinning options have not been verified against the real binaries.
+- IPv6: discovery resolves A records only, so an IPv6 entry in `--scope` is accepted but never covers a discovered host.
 - The scope check is by name or by resolved IP; it does not yet show the owner of each IP (CNAME target, ASN) at the confirmation prompt. Check the printed IPs against your authorization before typing yes.
 
 ## Reports

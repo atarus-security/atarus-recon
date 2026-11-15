@@ -49,7 +49,10 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         cmd = [
             httpx_path,
             "-l", host_file,
-            "-status-code", "-title", "-tech-detect", "-follow-redirects",
+            "-status-code", "-title", "-tech-detect",
+            # Follow a redirect only when it stays on the same host; a redirect
+            # to any other host is reported, not requested.
+            "-follow-host-redirects",
             "-silent", "-json",
             "-o", output_file,
             "-no-color",
@@ -61,7 +64,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         env["PATH"] = env.get("PATH", "") + ":" + os.path.expanduser("~/go/bin")
 
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=HTTPX_TIMEOUT, env=env)
+            proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=HTTPX_TIMEOUT, env=env)
         except OSError as e:
             return ModuleResult(success=False, message=f"httpx could not be started: {type(e).__name__}")
 
@@ -78,7 +81,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
                 message=f"httpx produced no output; web services on {len(alive_hosts)} hosts not probed",
             )
 
-        with open(output_file, "r") as f:
+        with open(output_file, "r", encoding="utf-8", errors="replace") as f:
             output_lines = f.read().strip().split("\n")
 
         if verbose:
@@ -112,6 +115,7 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         seen_hosts.add(matched_host.hostname)
 
         matched_host.status_code = entry.get("status_code", 0)
+        matched_host.web_url = _origin_for(entry.get("url", ""), matched_host.hostname)
         matched_host.title = entry.get("title", "")
         if entry.get("cdn", False):
             matched_host.cdn = True
@@ -125,6 +129,22 @@ def run(result: ScanResult, scope: ScopeValidator, rate_limit: int, verbose: boo
         probed += 1
 
     return ModuleResult(success=True, message=f"Probed {probed} web services")
+
+
+def _origin_for(url: str, hostname: str) -> str:
+    """scheme://host[:port] of the URL httpx answered on, when it is on hostname; else ""."""
+    try:
+        parsed = urlparse(url or "")
+        port = parsed.port
+    except ValueError:
+        return ""
+    if parsed.scheme not in ("http", "https") or (parsed.hostname or "").lower() != hostname.lower():
+        return ""
+    default = 443 if parsed.scheme == "https" else 80
+    origin = f"{parsed.scheme}://{hostname.lower()}"
+    if port and port != default:
+        origin += f":{port}"
+    return origin
 
 
 def _match_host_exact(entry: dict, host_map: dict):
@@ -181,7 +201,7 @@ def _is_pd_httpx(path: str) -> bool:
         result = subprocess.run(
             [path, "-version"],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=5,
         )
         output = (result.stdout + result.stderr).lower()
